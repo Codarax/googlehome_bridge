@@ -5,8 +5,7 @@ FROM ghcr.io/home-assistant/amd64-base:latest
 WORKDIR /app
 
 # Install Python and pip
-# The command 'apk add --no-cache python3 py3-pip' will install both
-RUN apk add --no-cache python3 py3-pip
+RUN apk update && apk add --no-cache python3 py3-pip
 
 # Copy requirements file
 COPY requirements.txt ./
