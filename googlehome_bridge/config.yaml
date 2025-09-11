@@ -1,6 +1,6 @@
 name: Google Home Bridge
 slug: googlehome_bridge
-version: "1.0.4"
+version: "1.0.5"
 description: "Bridge for Google Home / OAuth Smart Home fulfillment."
 url: "https://github.com/Codarax/googlehome_bridge"
 startup: services
@@ -12,7 +12,7 @@ arch:
 build:
   build_from:
     amd64: ghcr.io/home-assistant/amd64-base:latest
-    arm64: ghcr.io/home-assistant/aarch64-base:latest
+    aarch64: ghcr.io/home-assistant/aarch64-base:latest
     armv7: ghcr.io/home-assistant/armv7-base:latest
 map:
   - config:rw
