@@ -3,11 +3,13 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy requirements from subfolder explicitly (since build context is repo root)
+COPY googlehome_bridge/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-COPY server.py /app/server.py
-COPY run.sh /run.sh
+# Copy application files
+COPY googlehome_bridge/server.py /app/server.py
+COPY googlehome_bridge/run.sh /run.sh
 RUN chmod +x /run.sh
 
 EXPOSE 5000
