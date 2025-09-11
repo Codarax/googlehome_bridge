@@ -1,3 +1,21 @@
+# Virtualenv
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local build / node
+node_modules/
+
+# Secrets and runtime state
+tokens.json
+devices.json
+ADMIN_API_KEY
+
+# Editor files
+.vscode/
 # Python
 __pycache__/
 *.py[cod]
