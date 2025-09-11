@@ -1622,6 +1622,13 @@ if __name__ == "__main__":
                 print(f"INFO: Using persistent storage: tokens={TOKENS_FILE}, devices={DEVICES_FILE}")
         except Exception as _e:
             print(f"WARNING: Could not adjust storage paths: {_e}")
+        # Reinitialize HA client so it picks up updated HA_URL and HA_TOKEN
+        try:
+            ha_client = HAClient()
+            if DEBUG:
+                print("INFO: Reinitialized HA client with updated configuration")
+        except Exception as _he:
+            print(f"WARNING: Failed to reinitialize HA client: {_he}")
     except Exception as e:
         print(f"FATAL: Configuration error: {e}")
         raise
