@@ -1,10 +1,10 @@
 """Turn switch.woonkamer_lamp on for 20 seconds, then off (OAuth->token->EXECUTE->QUERY)."""
-import requests, time
+import requests, time, os
 from urllib.parse import urlparse, parse_qs
 
 BASE='http://127.0.0.1:3001'
-CLIENT_ID='Yew6FCGaG5ALIfNaZzWBZXBBLkaOnP8e'
-CLIENT_SECRET='HtHL5dDmYqtMpHWduEdHjkA0nOVJByNg'
+CLIENT_ID=os.getenv('CLIENT_ID','CHANGEME_CLIENT_ID')
+CLIENT_SECRET=os.getenv('CLIENT_SECRET','CHANGEME_CLIENT_SECRET')
 
 def get_token():
     r = requests.get(f"{BASE}/oauth", params={'client_id':CLIENT_ID,'redirect_uri':'http://localhost/callback','state':'x'}, allow_redirects=False)

@@ -1,10 +1,10 @@
 import requests
-import json
+import json, os
 from urllib.parse import urlparse, parse_qs
 
 BASE = 'http://127.0.0.1:3001'
-CLIENT_ID = 'Yew6FCGaG5ALIfNaZzWBZXBBLkaOnP8e'
-CLIENT_SECRET = 'HtHL5dDmYqtMpHWduEdHjkA0nOVJByNg'
+CLIENT_ID = os.getenv('CLIENT_ID', 'CHANGEME_CLIENT_ID')
+CLIENT_SECRET = os.getenv('CLIENT_SECRET', 'CHANGEME_CLIENT_SECRET')
 
 print('Reading devices.json')
 with open('devices.json') as f:

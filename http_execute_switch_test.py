@@ -1,8 +1,8 @@
 """Test toggling switch.woonkamer_lamp via OAuth -> token -> EXECUTE -> QUERY"""
-import requests, time
+import requests, time, os
 BASE='http://127.0.0.1:3001'
-CLIENT_ID='Yew6FCGaG5ALIfNaZzWBZXBBLkaOnP8e'
-CLIENT_SECRET='HtHL5dDmYqtMpHWduEdHjkA0nOVJByNg'
+CLIENT_ID=os.getenv('CLIENT_ID','CHANGEME_CLIENT_ID')
+CLIENT_SECRET=os.getenv('CLIENT_SECRET','CHANGEME_CLIENT_SECRET')
 
 from urllib.parse import urlparse, parse_qs
 

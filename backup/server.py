@@ -8,7 +8,11 @@ app = Flask(__name__)
 CLIENT_ID = os.getenv("CLIENT_ID", "Yew6FCGaG5ALIfNaZzWBZXBBLkaOnP8e")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET", "HtHL5dDmYqtMpHWduEdHjkA0nOVJByNg")
 HA_URL = os.getenv("HA_URL", "https://homeassistant.codarax.nl")
-HA_TOKEN = os.getenv("HA_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyNDBjZTc2NTZjMmQ0OGNkODVhYTc3ZGNlOWYwMWJmMyIsImlhdCI6MTc1NjM3NTAyMSwiZXhwIjoyMDcxNzM1MDIxfQ.n3kxMZOu9iz7oz2U85lhZRUfcVpGX0sC1dGL-uAlfIU")
+HA_TOKEN = os.getenv("HA_TOKEN")
+if not CLIENT_ID or not CLIENT_SECRET:
+    raise RuntimeError("Missing CLIENT_ID/CLIENT_SECRET env vars.")
+if not HA_TOKEN:
+    print("WARNING: HA_TOKEN not set.")
 
 # Token configuratie
 TOKENS_FILE = os.getenv("TOKENS_FILE", "tokens.json")

@@ -8,11 +8,16 @@ from collections import defaultdict
 
 # ==================== CONFIGURATION ====================
 
-# OAuth Configuration
-CLIENT_ID = os.getenv("CLIENT_ID", "Yew6FCGaG5ALIfNaZzWBZXBBLkaOnP8e")
-CLIENT_SECRET = os.getenv("CLIENT_SECRET", "HtHL5dDmYqtMpHWduEdHjkA0nOVJByNg")
-HA_URL = os.getenv("HA_URL", "https://homeassistant.codarax.nl")
-HA_TOKEN = os.getenv("HA_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyNDBjZTc2NTZjMmQ0OGNkODVhYTc3ZGNlOWYwMWJmMyIsImlhdCI6MTc1NjM3NTAyMSwiZXhwIjoyMDcxNzM1MDIxfQ.n3kxMZOu9iz7oz2U85lhZRUfcVpGX0sC1dGL-uAlfIU")
+# OAuth Configuration (NO hardcoded secrets – must be provided via environment)
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+HA_URL = os.getenv("HA_URL", "http://supervisor/core")
+HA_TOKEN = os.getenv("HA_TOKEN")
+
+if not CLIENT_ID or not CLIENT_SECRET:
+    raise RuntimeError("Missing CLIENT_ID or CLIENT_SECRET environment variables (removed hardcoded defaults).")
+if not HA_TOKEN:
+    print("WARNING: HA_TOKEN not set – Home Assistant API calls will fail.")
 
 # Feature flags
 EXPOSE_SENSORS = os.getenv("EXPOSE_SENSORS", "false").lower() == "true"
