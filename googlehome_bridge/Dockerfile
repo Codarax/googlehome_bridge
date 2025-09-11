@@ -1,11 +1,11 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.19
 FROM ${BUILD_FROM}
 
 WORKDIR /app
 
-# Base images already contain Python. Just install deps.
+# Copy requirements and install with python -m pip (more robust)
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN python -m pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy full application (root server.py lives one level up in repo, so include it explicitly)
 COPY server.py /app/server.py
