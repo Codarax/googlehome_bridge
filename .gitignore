@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual env
+venv/
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# Project secrets & runtime data
+ADMIN_API_KEY
+tokens.json
+devices.json
+*.log
+
+# Node (frontend)
+frontend/node_modules/
+frontend/dist/
+
+# Misc
+*.sqlite3
