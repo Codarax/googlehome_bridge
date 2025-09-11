@@ -1,16 +1,18 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:latest
-FROM ${BUILD_FROM}
+# Start with the base image
+FROM ghcr.io/home-assistant/amd64-base:latest
 
+# Set the working directory
 WORKDIR /app
 
-# Copy requirements first for caching
+# Install Python and pip
+# The command 'apk add --no-cache python3 py3-pip' will install both
+RUN apk add --no-cache python3 py3-pip
+
+# Copy requirements file
 COPY requirements.txt ./
+
+# Install Python dependencies using pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY server.py ./
-COPY run.sh /run.sh
-RUN chmod +x /run.sh
-
-EXPOSE 5000
-ENTRYPOINT ["/run.sh"]
+COPY . .
