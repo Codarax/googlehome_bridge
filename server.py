@@ -1617,3 +1617,25 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"FATAL: Configuration error: {e}")
         raise
+
+    # Ensure persistent storage files exist when using file storage
+    if USE_FILE_STORAGE:
+        try:
+            for path in [TOKENS_FILE, DEVICES_FILE]:
+                if not os.path.exists(path):
+                    with open(path, 'w', encoding='utf-8') as f:
+                        # tokens file gets structured JSON, devices file gets empty JSON object
+                        if path == TOKENS_FILE:
+                            json.dump({"auth_codes":{},"access_tokens":{},"refresh_tokens":{}}, f)
+                        else:
+                            json.dump({}, f)
+            if DEBUG:
+                print(f"INFO: Verified persistence files: tokens={TOKENS_FILE}, devices={DEVICES_FILE}")
+        except Exception as e:
+            print(f"WARNING: Could not initialize persistence files: {e}")
+
+    # Start Flask development server (for add-on simple run). In production one could swap for gunicorn.
+    port = int(os.getenv("PORT", "5000"))
+    build_ver = os.getenv("BUILD_VERSION", "dev")
+    print(f"INFO: Starting Flask app (version={build_ver}) on 0.0.0.0:{port}")
+    app.run(host="0.0.0.0", port=port)

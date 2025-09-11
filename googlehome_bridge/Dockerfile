@@ -14,6 +14,8 @@ RUN npm run build
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
+ARG BUILD_VERSION=dev
+ENV BUILD_VERSION=${BUILD_VERSION}
 
 # Install backend dependencies (use root requirements if present, fallback to addon requirements)
 COPY requirements.txt /tmp/requirements.txt
