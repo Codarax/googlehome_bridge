@@ -39,9 +39,13 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
+        run: |
+          RAW_TAG=${GITHUB_REF##*/}
+          CLEAN_TAG=${RAW_TAG#v}
+          echo "raw_tag=${RAW_TAG}" >> $GITHUB_OUTPUT
+          echo "clean_tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
 
-      - name: Build & Push Multi-Arch Image
+  - name: Build & Push Multi-Arch Image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -49,7 +53,8 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |
-            ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge:${{ steps.version.outputs.tag }}
+    ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge:${{ steps.version.outputs.raw_tag }}
+    ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge:${{ steps.version.outputs.clean_tag }}
             ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge:latest
           build-args: |
-            BUILD_VERSION=${{ steps.version.outputs.tag }}
+    BUILD_VERSION=${{ steps.version.outputs.clean_tag }}

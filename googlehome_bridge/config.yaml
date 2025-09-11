@@ -1,6 +1,6 @@
 name: Google Home Bridge
 slug: googlehome_bridge
-version: "1.3.7"
+version: "1.3.8"
 description: "Bridge for Google Home / OAuth Smart Home fulfillment."
 url: "https://github.com/Codarax/googlehome_bridge"
 startup: services
@@ -13,6 +13,7 @@ image: "ghcr.io/codarax/googlehome_bridge"
 map:
   - config:rw
   - share:rw
+  - data:rw
 ports:
   5000/tcp: 5000
 webui: "http://[HOST]:[PORT:5000]/admin"
@@ -30,6 +31,7 @@ options:
   expose_humidity: true
   expose_power: false
   expose_generic: false
+  admin_api_key: ""
 schema:
   client_id: str?
   client_secret: str?
@@ -41,3 +43,4 @@ schema:
   expose_humidity: bool?
   expose_power: bool?
   expose_generic: bool?
+  admin_api_key: str?

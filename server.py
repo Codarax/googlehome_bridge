@@ -31,9 +31,9 @@ STRICT_VERIFICATION = os.getenv("STRICT_VERIFICATION", "false").lower() == "true
 
 # Limits and timeouts
 MAX_DEVICES = int(os.getenv("MAX_DEVICES", "50"))
-TOKENS_FILE = os.getenv("TOKENS_FILE", "tokens.json")
+TOKENS_FILE = os.getenv("TOKENS_FILE", "tokens.json")  # May be remapped to /data at runtime
 USE_FILE_STORAGE = os.getenv("USE_FILE_STORAGE", "true").lower() == "true"
-DEVICES_FILE = os.getenv("DEVICES_FILE", "devices.json")
+DEVICES_FILE = os.getenv("DEVICES_FILE", "devices.json")  # May be remapped to /data at runtime
 DEVICES_LOCK = threading.Lock()
 
 # Token lifetimes
@@ -1562,7 +1562,8 @@ if __name__ == "__main__":
                 ("expose_temperature", "EXPOSE_TEMPERATURE"),
                 ("expose_humidity", "EXPOSE_HUMIDITY"),
                 ("expose_power", "EXPOSE_POWER"),
-                ("expose_generic", "EXPOSE_GENERIC")
+                ("expose_generic", "EXPOSE_GENERIC"),
+                ("admin_api_key", "ADMIN_API_KEY")
             ]:
                 src, dst = k_map
                 if src in opts and not os.getenv(dst):
@@ -1574,7 +1575,7 @@ if __name__ == "__main__":
                     print(f"INFO: Loaded option {src} -> env {dst}")
     except Exception as e:
         print(f"WARNING: Failed to load options.json: {e}")
-    # Refresh globals after potential load
+    # Refresh globals after potential load and adjust storage paths
     try:
         CLIENT_ID = os.getenv("CLIENT_ID")
         CLIENT_SECRET = os.getenv("CLIENT_SECRET")
@@ -1582,6 +1583,18 @@ if __name__ == "__main__":
         HA_TOKEN = os.getenv("HA_TOKEN", HA_TOKEN)
         if not CLIENT_ID or not CLIENT_SECRET:
             raise RuntimeError("Missing CLIENT_ID or CLIENT_SECRET after loading /data/options.json")
+        # If /data exists and token/device files are not absolute, relocate them there for persistence
+        try:
+            data_dir = "/data"
+            if os.path.isdir(data_dir):
+                # Adjust module-level paths for persistence
+                if not os.path.isabs(TOKENS_FILE):
+                    TOKENS_FILE = os.path.join(data_dir, os.path.basename(TOKENS_FILE))
+                if not os.path.isabs(DEVICES_FILE):
+                    DEVICES_FILE = os.path.join(data_dir, os.path.basename(DEVICES_FILE))
+                print(f"INFO: Using persistent storage: tokens={TOKENS_FILE}, devices={DEVICES_FILE}")
+        except Exception as _e:
+            print(f"WARNING: Could not adjust storage paths: {_e}")
     except Exception as e:
         print(f"FATAL: Configuration error: {e}")
         raise
