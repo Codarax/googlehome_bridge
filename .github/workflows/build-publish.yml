@@ -9,21 +9,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  build-multiarch:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        arch: [amd64, aarch64, armv7]
-        include:
-          - arch: amd64
-            platform: linux/amd64
-          - arch: aarch64
-            platform: linux/arm64
-          - arch: armv7
-            platform: linux/arm/v7
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,48 +41,15 @@ jobs:
         id: version
         run: echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
 
-      - name: Build & Push Image (${{ matrix.arch }})
+      - name: Build & Push Multi-Arch Image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: googlehome_bridge/Dockerfile
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |
-            ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge-${{ matrix.arch }}:${{ steps.version.outputs.tag }}
-            ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge-${{ matrix.arch }}:latest
+            ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge:latest
           build-args: |
             BUILD_VERSION=${{ steps.version.outputs.tag }}
-            BUILD_ARCH=${{ matrix.arch }}
-
-  manifest:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    permissions:
-      packages: write
-    steps:
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create & Push Multi-Arch Manifest (version)
-        run: |
-          TAG=${GITHUB_REF##*/}
-          OWNER_LC=${GITHUB_REPOSITORY%/*}
-          OWNER_LC=$(echo "$OWNER_LC" | tr '[:upper:]' '[:lower:]')
-          docker manifest create ghcr.io/${OWNER_LC}/googlehome_bridge:${TAG} \
-            ghcr.io/${OWNER_LC}/googlehome_bridge-amd64:${TAG} \
-            ghcr.io/${OWNER_LC}/googlehome_bridge-aarch64:${TAG} \
-            ghcr.io/${OWNER_LC}/googlehome_bridge-armv7:${TAG}
-          docker manifest push ghcr.io/${OWNER_LC}/googlehome_bridge:${TAG}
-      - name: Create & Push Multi-Arch Manifest (latest)
-        run: |
-          OWNER_LC=${GITHUB_REPOSITORY%/*}
-          OWNER_LC=$(echo "$OWNER_LC" | tr '[:upper:]' '[:lower:]')
-          docker manifest create ghcr.io/${OWNER_LC}/googlehome_bridge:latest \
-            ghcr.io/${OWNER_LC}/googlehome_bridge-amd64:latest \
-            ghcr.io/${OWNER_LC}/googlehome_bridge-aarch64:latest \
-            ghcr.io/${OWNER_LC}/googlehome_bridge-armv7:latest
-          docker manifest push ghcr.io/${OWNER_LC}/googlehome_bridge:latest
