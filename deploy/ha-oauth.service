@@ -1,0 +1,19 @@
+[Unit]
+Description=HA -> Google Home OAuth bridge
+After=network.target
+
+[Service]
+Type=simple
+User=haoauth
+Group=haoauth
+WorkingDirectory=/opt/ha-oauth
+# Use an environment file for secrets and overrides
+EnvironmentFile=/etc/ha-oauth.env
+ExecStart=/opt/ha-oauth/venv/bin/python /opt/ha-oauth/server.py
+Restart=on-failure
+RestartSec=5s
+# Limit resources slightly
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

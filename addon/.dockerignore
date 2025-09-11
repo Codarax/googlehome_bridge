@@ -1,0 +1,12 @@
+# Home Assistant Add-on ignore file
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+*.env
+.env*
+tokens.json
+devices.json
