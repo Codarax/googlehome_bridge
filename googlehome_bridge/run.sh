@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
-cd /app || exit 1
-exec python server.py
+set -e
+
+echo "Starting Google Home Bridge..."
+exec python /app/server.py

@@ -1,6 +1,6 @@
 name: Google Home Bridge
 slug: googlehome_bridge
-version: "1.1.0"
+version: "1.1.1"
 description: "Bridge for Google Home / OAuth Smart Home fulfillment."
 url: "https://github.com/Codarax/googlehome_bridge"
 startup: services
@@ -23,17 +23,6 @@ webui: "http://[HOST]:[PORT:5000]/admin"
 watchdog: "http://[HOST]:[PORT:5000]/health"
 ingress: false
 panel_icon: mdi:google-assistant
-schema:
-  client_id: str?
-  client_secret: str?
-  ha_url: str?
-  ha_token: str?
-  debug: bool?
-  expose_sensors: bool?
-  expose_temperature: bool?
-  expose_humidity: bool?
-  expose_power: bool?
-  expose_generic: bool?
 options:
   client_id: "CHANGE_ME"
   client_secret: "CHANGE_ME"
@@ -45,3 +34,14 @@ options:
   expose_humidity: true
   expose_power: false
   expose_generic: false
+schema:
+  client_id: str?
+  client_secret: str?
+  ha_url: str?
+  ha_token: str?
+  debug: bool?
+  expose_sensors: bool?
+  expose_temperature: bool?
+  expose_humidity: bool?
+  expose_power: bool?
+  expose_generic: bool?
