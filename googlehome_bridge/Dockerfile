@@ -3,10 +3,8 @@
 ############################
 FROM node:20-alpine AS frontend
 WORKDIR /frontend
-COPY frontend/package.json ./
-# If a lock file exists copy it for better caching
-COPY frontend/package-lock.json ./ 2>/dev/null || true
-RUN npm install --no-audit --no-fund
+COPY frontend/package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 COPY frontend/ .
 RUN npm run build
 
@@ -17,9 +15,10 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Install backend dependencies
-COPY googlehome_bridge/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Install backend dependencies (use root requirements if present, fallback to addon requirements)
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt || echo "Root requirements failed, trying addon requirements" \
+ && if [ -f googlehome_bridge/requirements.txt ]; then pip install --no-cache-dir -r googlehome_bridge/requirements.txt; fi || true
 
 # Copy backend application (root server.py) and entrypoint
 COPY server.py /app/server.py
