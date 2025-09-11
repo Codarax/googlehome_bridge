@@ -1,18 +1,13 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
 FROM ${BUILD_FROM}
 
-# Install python & tools then upgrade pip
-RUN apk add --no-cache python3 py3-pip bash && \
-    python3 -m ensurepip && \
-    pip3 install --no-cache --upgrade pip
-
 WORKDIR /app
 
-# Copy dependency spec first for better layer caching
+# Base images already contain Python. Just install deps.
 COPY requirements.txt /app/requirements.txt
-RUN pip3 install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy server wrapper (will import actual root /app/server.py if mounted/copied later)
+# Copy full application (root server.py lives one level up in repo, so include it explicitly)
 COPY server.py /app/server.py
 COPY run.sh /run.sh
 RUN chmod +x /run.sh
