@@ -45,7 +45,7 @@ jobs:
         id: version
         run: echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
 
-  - name: Build & Push Image (${{ matrix.arch }})
+      - name: Build & Push Image (${{ matrix.arch }})
         uses: docker/build-push-action@v6
         with:
           context: .
