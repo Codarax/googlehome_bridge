@@ -16,11 +16,11 @@ jobs:
       packages: write
     strategy:
       matrix:
-        arch: [amd64, arm64, armv7]
+        arch: [amd64, aarch64, armv7]
         include:
           - arch: amd64
             platform: linux/amd64
-          - arch: arm64
+          - arch: aarch64
             platform: linux/arm64
           - arch: armv7
             platform: linux/arm/v7
@@ -53,8 +53,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/googlehome_bridge-${{ matrix.arch }}:${{ steps.version.outputs.tag }}
-            ghcr.io/${{ github.repository_owner }}/googlehome_bridge-${{ matrix.arch }}:latest
+            ghcr.io/${{ toLower(github.repository_owner) }}/googlehome_bridge-${{ matrix.arch }}:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ toLower(github.repository_owner) }}/googlehome_bridge-${{ matrix.arch }}:latest
           build-args: |
             BUILD_VERSION=${{ steps.version.outputs.tag }}
             BUILD_ARCH=${{ matrix.arch }}
@@ -74,15 +74,17 @@ jobs:
       - name: Create & Push Multi-Arch Manifest (version)
         run: |
           TAG=${GITHUB_REF##*/}
-          docker manifest create ghcr.io/${{ github.repository_owner }}/googlehome_bridge:${TAG} \
-            ghcr.io/${{ github.repository_owner }}/googlehome_bridge-amd64:${TAG} \
-            ghcr.io/${{ github.repository_owner }}/googlehome_bridge-arm64:${TAG} \
-            ghcr.io/${{ github.repository_owner }}/googlehome_bridge-armv7:${TAG}
-          docker manifest push ghcr.io/${{ github.repository_owner }}/googlehome_bridge:${TAG}
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker manifest create ghcr.io/${OWNER_LC}/googlehome_bridge:${TAG} \
+            ghcr.io/${OWNER_LC}/googlehome_bridge-amd64:${TAG} \
+            ghcr.io/${OWNER_LC}/googlehome_bridge-aarch64:${TAG} \
+            ghcr.io/${OWNER_LC}/googlehome_bridge-armv7:${TAG}
+          docker manifest push ghcr.io/${OWNER_LC}/googlehome_bridge:${TAG}
       - name: Create & Push Multi-Arch Manifest (latest)
         run: |
-          docker manifest create ghcr.io/${{ github.repository_owner }}/googlehome_bridge:latest \
-            ghcr.io/${{ github.repository_owner }}/googlehome_bridge-amd64:latest \
-            ghcr.io/${{ github.repository_owner }}/googlehome_bridge-arm64:latest \
-            ghcr.io/${{ github.repository_owner }}/googlehome_bridge-armv7:latest
-          docker manifest push ghcr.io/${{ github.repository_owner }}/googlehome_bridge:latest
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker manifest create ghcr.io/${OWNER_LC}/googlehome_bridge:latest \
+            ghcr.io/${OWNER_LC}/googlehome_bridge-amd64:latest \
+            ghcr.io/${OWNER_LC}/googlehome_bridge-aarch64:latest \
+            ghcr.io/${OWNER_LC}/googlehome_bridge-armv7:latest
+          docker manifest push ghcr.io/${OWNER_LC}/googlehome_bridge:latest
