@@ -28,6 +28,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Derive lowercase owner
+        id: meta
+        run: |
+          OWNER=${GITHUB_REPOSITORY%/*}
+          echo "owner_lc=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -53,8 +59,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/${{ toLower(github.repository_owner) }}/googlehome_bridge-${{ matrix.arch }}:${{ steps.version.outputs.tag }}
-            ghcr.io/${{ toLower(github.repository_owner) }}/googlehome_bridge-${{ matrix.arch }}:latest
+            ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge-${{ matrix.arch }}:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ steps.meta.outputs.owner_lc }}/googlehome_bridge-${{ matrix.arch }}:latest
           build-args: |
             BUILD_VERSION=${{ steps.version.outputs.tag }}
             BUILD_ARCH=${{ matrix.arch }}
@@ -74,7 +80,8 @@ jobs:
       - name: Create & Push Multi-Arch Manifest (version)
         run: |
           TAG=${GITHUB_REF##*/}
-          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          OWNER_LC=${GITHUB_REPOSITORY%/*}
+          OWNER_LC=$(echo "$OWNER_LC" | tr '[:upper:]' '[:lower:]')
           docker manifest create ghcr.io/${OWNER_LC}/googlehome_bridge:${TAG} \
             ghcr.io/${OWNER_LC}/googlehome_bridge-amd64:${TAG} \
             ghcr.io/${OWNER_LC}/googlehome_bridge-aarch64:${TAG} \
@@ -82,7 +89,8 @@ jobs:
           docker manifest push ghcr.io/${OWNER_LC}/googlehome_bridge:${TAG}
       - name: Create & Push Multi-Arch Manifest (latest)
         run: |
-          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          OWNER_LC=${GITHUB_REPOSITORY%/*}
+          OWNER_LC=$(echo "$OWNER_LC" | tr '[:upper:]' '[:lower:]')
           docker manifest create ghcr.io/${OWNER_LC}/googlehome_bridge:latest \
             ghcr.io/${OWNER_LC}/googlehome_bridge-amd64:latest \
             ghcr.io/${OWNER_LC}/googlehome_bridge-aarch64:latest \
