@@ -1,7 +1,7 @@
 # Single-file OAuth server for Google Home HAVoice integration
 # Consolidated version of all modules for easier deployment
 
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify, redirect, send_from_directory
 import jwt, time, secrets, requests, os, json
 import threading
 from collections import defaultdict
@@ -1272,62 +1272,81 @@ def admin_devices_select():
 # Serve a tiny admin UI (single-file) at /admin
 @app.route('/admin')
 def admin_ui():
-        html = '''
-        <!doctype html>
-        <html>
-        <head>
-            <meta charset="utf-8" />
-            <title>HA -> Google Home Selections</title>
-            <style>
-                body{font-family:Segoe UI,Arial;margin:20px}
-                table{border-collapse:collapse;width:100%}
-                th,td{border:1px solid #ddd;padding:8px}
-                th{background:#f4f4f4}
-            </style>
-        </head>
-        <body>
-            <h1>Select devices for Google Home sync</h1>
-            <div id="status"></div>
-            <table id="devices">
-                <thead><tr><th>Allow</th><th>Entity ID</th><th>Name</th><th>State</th></tr></thead>
-                <tbody></tbody>
-            </table>
+    # Serve built React admin UI if present; fallback to legacy inline HTML.
+    dist = os.getenv('FRONTEND_DIST', '/app/frontend-dist')
+    index_path = os.path.join(dist, 'index.html')
+    if os.path.exists(index_path):
+        return send_from_directory(dist, 'index.html')
 
-            <script>
-                async function load(){
-                    const res = await fetch('/admin/devices');
-                    const status = res.status
-                    const statusEl = document.getElementById('status')
-                    if (status === 401){
-                        statusEl.innerText = 'Geen toestemming: voer de Admin API key in via de Admin knop rechtsboven.'
-                        document.getElementById('devices').style.display = 'none'
-                        return
-                    }
-                    const data = await res.json();
-                    const tbody = document.querySelector('#devices tbody');
-                    tbody.innerHTML = '';
-                    data.devices.forEach(d=>{
-                        const tr = document.createElement('tr');
-                        const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = !!d.allowed;
-                        cb.addEventListener('change', async ()=>{
-                            await fetch('/admin/devices/select', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({entity_id:d.entity_id, allowed:cb.checked})});
-                            document.getElementById('status').innerText = 'Saved';
-                            setTimeout(()=>document.getElementById('status').innerText='',1500);
-                        });
-                        const tdAllow = document.createElement('td'); tdAllow.appendChild(cb);
-                        tr.appendChild(tdAllow);
-                        tr.appendChild(Object.assign(document.createElement('td'), {innerText: d.entity_id}));
-                        tr.appendChild(Object.assign(document.createElement('td'), {innerText: d.friendly_name}));
-                        tr.appendChild(Object.assign(document.createElement('td'), {innerText: d.state}));
-                        tbody.appendChild(tr);
-                    });
+    html = '''
+    <!doctype html>
+    <html>
+    <head>
+        <meta charset="utf-8" />
+        <title>HA -> Google Home Selections</title>
+        <style>
+            body{font-family:Segoe UI,Arial;margin:20px}
+            table{border-collapse:collapse;width:100%}
+            th,td{border:1px solid #ddd;padding:8px}
+            th{background:#f4f4f4}
+        </style>
+    </head>
+    <body>
+        <h1>Select devices for Google Home sync</h1>
+        <div id="status"></div>
+        <table id="devices">
+            <thead><tr><th>Allow</th><th>Entity ID</th><th>Name</th><th>State</th></tr></thead>
+            <tbody></tbody>
+        </table>
+
+        <script>
+            async function load(){
+                const res = await fetch('/admin/devices');
+                const status = res.status
+                const statusEl = document.getElementById('status')
+                if (status === 401){
+                    statusEl.innerText = 'Geen toestemming: voer de Admin API key in via de Admin knop rechtsboven.'
+                    document.getElementById('devices').style.display = 'none'
+                    return
                 }
-                load();
-            </script>
-        </body>
-        </html>
-        '''
-        return html
+                const data = await res.json();
+                const tbody = document.querySelector('#devices tbody');
+                tbody.innerHTML = '';
+                data.devices.forEach(d=>{
+                    const tr = document.createElement('tr');
+                    const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = !!d.allowed;
+                    cb.addEventListener('change', async ()=>{
+                        await fetch('/admin/devices/select', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({entity_id:d.entity_id, allowed:cb.checked})});
+                        document.getElementById('status').innerText = 'Saved';
+                        setTimeout(()=>document.getElementById('status').innerText='',1500);
+                    });
+                    const tdAllow = document.createElement('td'); tdAllow.appendChild(cb);
+                    tr.appendChild(tdAllow);
+                    tr.appendChild(Object.assign(document.createElement('td'), {innerText: d.entity_id}));
+                    tr.appendChild(Object.assign(document.createElement('td'), {innerText: d.friendly_name}));
+                    tr.appendChild(Object.assign(document.createElement('td'), {innerText: d.state}));
+                    tbody.appendChild(tr);
+                });
+            }
+            load();
+        </script>
+    </body>
+    </html>
+    '''
+    return html
+
+@app.route('/assets/<path:fname>')
+@app.route('/admin/assets/<path:fname>')
+def admin_assets(fname):
+    dist = os.getenv('FRONTEND_DIST', '/app/frontend-dist/assets')
+    # try /app/frontend-dist/assets first
+    if os.path.isdir(dist):
+        full_dir = dist
+    else:
+        # maybe FRONTEND_DIST was set without /assets
+        base = os.getenv('FRONTEND_DIST', '/app/frontend-dist')
+        full_dir = os.path.join(base, 'assets')
+    return send_from_directory(full_dir, fname)
 
 @app.route('/token', methods=['POST'])
 def token():
@@ -1598,4 +1617,3 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"FATAL: Configuration error: {e}")
         raise
-    # ...existing code...
