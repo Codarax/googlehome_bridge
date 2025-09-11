@@ -1338,15 +1338,13 @@ def admin_ui():
 @app.route('/assets/<path:fname>')
 @app.route('/admin/assets/<path:fname>')
 def admin_assets(fname):
-    dist = os.getenv('FRONTEND_DIST', '/app/frontend-dist/assets')
-    # try /app/frontend-dist/assets first
-    if os.path.isdir(dist):
-        full_dir = dist
-    else:
-        # maybe FRONTEND_DIST was set without /assets
-        base = os.getenv('FRONTEND_DIST', '/app/frontend-dist')
-        full_dir = os.path.join(base, 'assets')
-    return send_from_directory(full_dir, fname)
+    base = os.getenv('FRONTEND_DIST', '/app/frontend-dist')
+    assets_dir = os.path.join(base, 'assets')
+    if not os.path.isdir(assets_dir):
+        if DEBUG:
+            print(f"WARNING: Assets dir missing: {assets_dir}")
+        return ("Not Found", 404)
+    return send_from_directory(assets_dir, fname)
 
 @app.route('/token', methods=['POST'])
 def token():
