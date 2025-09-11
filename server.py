@@ -1598,6 +1598,16 @@ if __name__ == "__main__":
         CLIENT_SECRET = os.getenv("CLIENT_SECRET")
         HA_URL = os.getenv("HA_URL", HA_URL)
         HA_TOKEN = os.getenv("HA_TOKEN", HA_TOKEN)
+        # Refresh admin API key too (was read at import time before options loaded)
+        try:
+            env_admin = os.getenv("ADMIN_API_KEY")
+            if env_admin and env_admin != ADMIN_API_KEY:
+                # rebind module-level variable
+                ADMIN_API_KEY = env_admin  # type: ignore
+                if DEBUG:
+                    print(f"INFO: Refreshed ADMIN_API_KEY from environment (length={len(ADMIN_API_KEY)})")
+        except Exception as _ae:
+            print(f"WARNING: Could not refresh ADMIN_API_KEY: {_ae}")
         if not CLIENT_ID or not CLIENT_SECRET:
             raise RuntimeError("Missing CLIENT_ID or CLIENT_SECRET after loading /data/options.json")
         # If /data exists and token/device files are not absolute, relocate them there for persistence
