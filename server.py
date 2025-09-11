@@ -14,10 +14,11 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 HA_URL = os.getenv("HA_URL", "http://supervisor/core")
 HA_TOKEN = os.getenv("HA_TOKEN")
 
+# Home Assistant add-on loads /data/options.json later; so only warn now
 if not CLIENT_ID or not CLIENT_SECRET:
-    raise RuntimeError("Missing CLIENT_ID or CLIENT_SECRET environment variables (removed hardcoded defaults).")
+    print("INFO: CLIENT_ID/CLIENT_SECRET not yet set at import time; will attempt later load.")
 if not HA_TOKEN:
-    print("WARNING: HA_TOKEN not set – Home Assistant API calls will fail.")
+    print("WARNING: HA_TOKEN not set – Home Assistant API calls will fail until provided.")
 
 # Feature flags
 EXPOSE_SENSORS = os.getenv("EXPOSE_SENSORS", "false").lower() == "true"
@@ -1573,6 +1574,15 @@ if __name__ == "__main__":
                     print(f"INFO: Loaded option {src} -> env {dst}")
     except Exception as e:
         print(f"WARNING: Failed to load options.json: {e}")
-    # Re-import critical env after mapping (in real refactor we'd avoid module-level constants)
-    # Note: This keeps backward compatibility; real refactor would move config into a class.
+    # Refresh globals after potential load
+    try:
+        CLIENT_ID = os.getenv("CLIENT_ID")
+        CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+        HA_URL = os.getenv("HA_URL", HA_URL)
+        HA_TOKEN = os.getenv("HA_TOKEN", HA_TOKEN)
+        if not CLIENT_ID or not CLIENT_SECRET:
+            raise RuntimeError("Missing CLIENT_ID or CLIENT_SECRET after loading /data/options.json")
+    except Exception as e:
+        print(f"FATAL: Configuration error: {e}")
+        raise
     # ...existing code...
