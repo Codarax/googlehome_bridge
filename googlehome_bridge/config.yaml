@@ -9,6 +9,11 @@ arch:
   - amd64
   - arm64
   - armv7
+build:
+  build_from:
+    amd64: ghcr.io/home-assistant/amd64-base:latest
+    arm64: ghcr.io/home-assistant/aarch64-base:latest
+    armv7: ghcr.io/home-assistant/armv7-base:latest
 map:
   - config:rw
   - share:rw
