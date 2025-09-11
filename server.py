@@ -1445,7 +1445,7 @@ def smarthome():
                 try:
                     val_float = float(state['state'])
                     device_class = state['attributes'].get('device_class', '')
-                    entity_name_lower = entity_id.lower()
+                    entity_name_lower = entity_id.lower();
 
                     if (device_class in ('temperature', 'temperature_sensor') or
                         'temperature' in entity_name_lower or 'temp' in entity_name_lower):
@@ -1544,29 +1544,35 @@ def health_check():
         }), 500
 
 if __name__ == "__main__":
-    print("INFO: Starting OAuth server...")
-    print(f"INFO: Client ID: {CLIENT_ID}")
-    print(f"INFO: Home Assistant URL: {HA_URL}")
-    print(f"INFO: Token storage: {'file' if USE_FILE_STORAGE else 'memory'}")
-    print(f"INFO: Expose sensors: {EXPOSE_SENSORS}")
-    print(f"INFO: Expose temperature: {EXPOSE_TEMPERATURE}")
-    print(f"INFO: Expose humidity: {EXPOSE_HUMIDITY}")
-    print(f"INFO: Expose power: {EXPOSE_POWER}")
-    print(f"INFO: Expose generic: {EXPOSE_GENERIC}")
-    print(f"INFO: Max devices: {MAX_DEVICES}")
-    print(f"INFO: Debug mode: {DEBUG}")
-    print("INFO: Sensor filtering: Only sensors starting with 'sensor.th_' are exported")
-    print("INFO: Device filtering: Priority devices first, then regular devices")
-    print("INFO: All devices now have willReportState=true for better Google Home integration")
-
-    port = int(os.getenv("PORT", "5000"))
-    debug = os.getenv("DEBUG", "false").lower() == "true"
+    # Map Home Assistant add-on options (if mounted as JSON) -> env (future: could parse /data/options.json)
+    options_path = "/data/options.json"
     try:
-        app.run(host='0.0.0.0', port=port, debug=debug)
-    except KeyboardInterrupt:
-        print("INFO: Shutting down server...")
-    finally:
-        if USE_FILE_STORAGE:
-            print("INFO: Saving tokens before shutdown...")
-            token_manager.save_tokens()
-            print("INFO: Tokens saved successfully")
+        if os.path.exists(options_path):
+            with open(options_path, 'r', encoding='utf-8') as f:
+                opts = json.load(f)
+            # Only set if not already provided explicitly
+            for k_map in [
+                ("client_id", "CLIENT_ID"),
+                ("client_secret", "CLIENT_SECRET"),
+                ("ha_url", "HA_URL"),
+                ("ha_token", "HA_TOKEN"),
+                ("debug", "DEBUG"),
+                ("expose_sensors", "EXPOSE_SENSORS"),
+                ("expose_temperature", "EXPOSE_TEMPERATURE"),
+                ("expose_humidity", "EXPOSE_HUMIDITY"),
+                ("expose_power", "EXPOSE_POWER"),
+                ("expose_generic", "EXPOSE_GENERIC")
+            ]:
+                src, dst = k_map
+                if src in opts and not os.getenv(dst):
+                    val = opts[src]
+                    # convert bools to lowercase string
+                    if isinstance(val, bool):
+                        val = str(val).lower()
+                    os.environ[dst] = str(val)
+                    print(f"INFO: Loaded option {src} -> env {dst}")
+    except Exception as e:
+        print(f"WARNING: Failed to load options.json: {e}")
+    # Re-import critical env after mapping (in real refactor we'd avoid module-level constants)
+    # Note: This keeps backward compatibility; real refactor would move config into a class.
+    # ...existing code...
