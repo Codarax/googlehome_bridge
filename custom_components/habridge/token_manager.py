@@ -45,7 +45,7 @@ class TokenManager:
         refresh_token = self._gen_code(60)
         self._data["refresh_tokens"][refresh_token] = {"user_id": user_id, "created": datetime.utcnow().isoformat()}
         await self._persist()
-        return TokenData(access_token=access_token, refresh_token=refresh_token, token_type="bearer", expires_in=ACCESS_TOKEN_TTL)
+        return TokenData(access_token=access_token, refresh_token=refresh_token, token_type="Bearer", expires_in=ACCESS_TOKEN_TTL)
 
     async def refresh(self, refresh_token: str) -> Optional[TokenData]:
         meta = self._data["refresh_tokens"].get(refresh_token)
@@ -53,4 +53,4 @@ class TokenManager:
             return None
         user_id = meta["user_id"]
         access_token = jwt.encode({"sub": user_id, "iat": datetime.utcnow(), "exp": datetime.utcnow() + timedelta(seconds=ACCESS_TOKEN_TTL)}, self.client_secret, algorithm=JWT_ALG)
-        return TokenData(access_token=access_token, refresh_token=refresh_token, token_type="bearer", expires_in=ACCESS_TOKEN_TTL)
+        return TokenData(access_token=access_token, refresh_token=refresh_token, token_type="Bearer", expires_in=ACCESS_TOKEN_TTL)

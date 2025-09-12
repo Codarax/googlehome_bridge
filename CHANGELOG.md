@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.7] - 2025-09-13
+### Added / Fixed
+- Smart Home fulfillment logging (intent, device counts, exceptions) voor diagnose van Google koppelfouten.
+- Foutafhandeling in `/habridge/smarthome` met `internalError` bij onverwachte exceptions.
+- `token_type` naar `Bearer` (casing) voor OAuth compatibiliteit.
+
+
 ## [2.0.6] - 2025-09-13
 ### Security / Changed
 - Admin & devices endpoint nu token-based i.p.v. HA sessie afhankelijk: random `admin_token` query parameter wordt gegenereerd en aan panel URL toegevoegd.

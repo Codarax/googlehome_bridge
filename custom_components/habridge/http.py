@@ -4,6 +4,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import __version__ as HA_VERSION
 from aiohttp import web
 import json
+import logging
 
 from .const import (
     OAUTH_PATH,
@@ -71,24 +72,38 @@ class SmartHomeView(HomeAssistantView):
         self.client_secret = client_secret
 
     async def post(self, request):
-        body = await request.json()
+        logger = logging.getLogger(__name__)
+        try:
+            body = await request.json()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("habridge: invalid JSON body on smarthome endpoint (%s)", exc)
+            return web.json_response({"requestId": "invalid", "payload": {"errorCode": "protocolError"}}, status=400)
         intent = body.get("inputs", [{}])[0].get("intent")
         request_id = body.get("requestId", "req")
-        if intent == "action.devices.SYNC":
-            devices = self.device_mgr.build_sync()
-            return web.json_response({"requestId": request_id, "payload": {"agentUserId": "user", "devices": devices}})
-        if intent == "action.devices.QUERY":
-            devices = {}
-            for eid in self.device_mgr.selected():
-                st = self.hass.states.get(eid)
-                if st:
-                    devices[eid] = {"on": st.state == "on", "online": True}
-            return web.json_response({"requestId": request_id, "payload": {"devices": devices}})
-        if intent == "action.devices.EXECUTE":
-            commands = body.get("inputs", [{}])[0].get("payload", {}).get("commands", [])
-            results = await self.device_mgr.execute(commands)
-            return web.json_response({"requestId": request_id, "payload": {"commands": [{"ids": r["ids"], "status": r["status"]} for r in results]}})
-        return web.json_response({"requestId": request_id, "payload": {}})
+        logger.debug("habridge: intent=%s requestId=%s raw=%s", intent, request_id, body)
+        try:
+            if intent == "action.devices.SYNC":
+                devices = self.device_mgr.build_sync()
+                logger.info("habridge: SYNC returns %d devices", len(devices))
+                return web.json_response({"requestId": request_id, "payload": {"agentUserId": "user", "devices": devices}})
+            if intent == "action.devices.QUERY":
+                devices = {}
+                for eid in self.device_mgr.selected():
+                    st = self.hass.states.get(eid)
+                    if st:
+                        devices[eid] = {"on": st.state == "on", "online": True}
+                logger.debug("habridge: QUERY devices=%d", len(devices))
+                return web.json_response({"requestId": request_id, "payload": {"devices": devices}})
+            if intent == "action.devices.EXECUTE":
+                commands = body.get("inputs", [{}])[0].get("payload", {}).get("commands", [])
+                results = await self.device_mgr.execute(commands)
+                logger.info("habridge: EXECUTE processed %d command groups", len(commands))
+                return web.json_response({"requestId": request_id, "payload": {"commands": [{"ids": r["ids"], "status": r["status"]} for r in results]}})
+            logger.warning("habridge: unknown intent '%s'", intent)
+            return web.json_response({"requestId": request_id, "payload": {}}, status=200)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("habridge: exception processing intent %s", intent)
+            return web.json_response({"requestId": request_id, "payload": {"errorCode": "internalError"}}, status=500)
 
 class HealthView(HomeAssistantView):
     url = HEALTH_PATH
