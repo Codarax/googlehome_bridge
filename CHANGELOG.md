@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.6] - 2025-09-13
+### Security / Changed
+- Admin & devices endpoint nu token-based i.p.v. HA sessie afhankelijk: random `admin_token` query parameter wordt gegenereerd en aan panel URL toegevoegd.
+- Views `AdminPageView` en `DevicesView` vereisen geen HA login meer (`requires_auth=False`) maar valideren token; voorkomt 401 issues in iframe.
+- Fetch calls in admin pagina sturen token automatisch mee.
+
+
 ## [2.0.5] - 2025-09-13
 ### Fixed
 - Sidebar panel registratie: ontbrak vereiste `hass` argument bij fallback `async_register_built_in_panel`, veroorzaakt warning en geen panel. Correcte aanroep + extra debug logging toegevoegd.

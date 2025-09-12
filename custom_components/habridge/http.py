@@ -100,13 +100,14 @@ class HealthView(HomeAssistantView):
 
 # ---- Admin / Devices ----
 
-ADMIN_HTML = """<!DOCTYPE html><html><head><meta charset='utf-8'/><title>HA Bridge Devices</title>
+ADMIN_HTML_BASE = """<!DOCTYPE html><html><head><meta charset='utf-8'/><title>HA Bridge Devices</title>
 <style>body{font-family:Arial;margin:1rem;}table{border-collapse:collapse;width:100%;}th,td{padding:4px 8px;border-bottom:1px solid #ccc;}input[type=search]{width:300px;padding:4px;margin-bottom:8px;} .on{color:green;font-weight:600;} .off{color:#999;} button{padding:4px 10px;}</style></head>
 <body><h2>HA Bridge Devices</h2><input id='q' placeholder='Search' type='search' oninput='filter()' /> <button onclick='bulk(true)'>Select All</button> <button onclick='bulk(false)'>Clear All</button>
 <table id='tbl'><thead><tr><th>Entity</th><th>Name</th><th>Domain</th><th>Selected</th></tr></thead><tbody></tbody></table>
 <script>
+const urlParams=new URLSearchParams(window.location.search);const ADMIN_TOKEN=urlParams.get('token');
 async function load(){
-  const r=await fetch('/habridge/devices');
+    const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
   const data=await r.json();
   window._rows=data.devices;render();
 }
@@ -121,10 +122,10 @@ function render(){
   });
 }
 async function toggle(id,val){
-  await fetch('/habridge/devices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:{[id]:val}})});load();
+    await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:{[id]:val}})});load();
 }
 async function bulk(val){
-  const ups={};window._rows.forEach(r=>ups[r.id]=val);await fetch('/habridge/devices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:ups})});load();
+    const ups={};window._rows.forEach(r=>ups[r.id]=val);await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:ups})});load();
 }
 load();
 </script></body></html>"""
@@ -132,21 +133,31 @@ load();
 class AdminPageView(HomeAssistantView):
     url = "/habridge/admin"
     name = "habridge:admin"
-    requires_auth = True  # Must be logged into HA UI
+    requires_auth = False
+
+    def __init__(self, admin_token: str):
+        self._token = admin_token
 
     async def get(self, request):
-        return web.Response(text=ADMIN_HTML, content_type='text/html')
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.Response(status=401, text="Unauthorized")
+        return web.Response(text=ADMIN_HTML_BASE, content_type='text/html')
 
 class DevicesView(HomeAssistantView):
     url = "/habridge/devices"
     name = "habridge:devices"
-    requires_auth = True
+    requires_auth = False
 
-    def __init__(self, hass: HomeAssistant, device_mgr: DeviceManager):
+    def __init__(self, hass: HomeAssistant, device_mgr: DeviceManager, admin_token: str):
         self.hass = hass
         self.device_mgr = device_mgr
+        self._token = admin_token
 
     async def get(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
         out = []
         for eid in self.device_mgr.list_entities():
             st = self.hass.states.get(eid)
@@ -159,6 +170,9 @@ class DevicesView(HomeAssistantView):
         return web.json_response({"devices": out})
 
     async def post(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
         data = await request.json()
         updates = data.get("updates", {})
         await self.device_mgr.bulk_update(updates)

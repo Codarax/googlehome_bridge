@@ -17,6 +17,7 @@ from .const import (
 from .token_manager import TokenManager
 from .device_manager import DeviceManager
 from .http import OAuthView, TokenView, SmartHomeView, HealthView, AdminPageView, DevicesView
+import secrets
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -48,9 +49,12 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
     hass.http.register_view(OAuthView(hass, token_mgr))
     hass.http.register_view(TokenView(hass, token_mgr))
     hass.http.register_view(SmartHomeView(hass, token_mgr, device_mgr, client_secret))
+    admin_token = secrets.token_urlsafe(16)
+    hass.data[DOMAIN]["admin_token"] = admin_token
+
     hass.http.register_view(HealthView())
-    hass.http.register_view(AdminPageView())
-    hass.http.register_view(DevicesView(hass, device_mgr))
+    hass.http.register_view(AdminPageView(admin_token))
+    hass.http.register_view(DevicesView(hass, device_mgr, admin_token))
 
     async def _register_panel(*_):
         if hass.data.get(PANEL_ID):
@@ -67,7 +71,7 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
                     frontend_url_path=PANEL_ID,
                     sidebar_title="HA Bridge",
                     sidebar_icon="mdi:bridge",
-                    config={"url": "/habridge/admin"},
+                    config={"url": f"/habridge/admin?token={admin_token}"},
                     require_admin=True,
                 )
                 LOGGER.info("habridge: sidebar panel registered as '%s' -> /habridge/admin", PANEL_ID)
@@ -82,7 +86,7 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
                     sidebar_title="HA Bridge",
                     sidebar_icon="mdi:bridge",
                     frontend_url_path=PANEL_ID,
-                    config={"url": "/habridge/admin"},
+                    config={"url": f"/habridge/admin?token={admin_token}"},
                     require_admin=True,
                 )
                 LOGGER.info("habridge: sidebar built_in panel registered '%s'", PANEL_ID)
