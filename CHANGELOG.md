@@ -8,6 +8,10 @@
 ### Fixed
 - Panel registratie AttributeError (hass.components.frontend niet beschikbaar tijdens setup entry) nu uitgesteld tot HA start event.
 
+## [2.0.4] - 2025-09-13
+### Fixed
+- Definitieve sidebar panel registratie via `frontend.async_register_panel` met logging en fallback; panel verschijnt nu consequent.
+
 ## [2.0.2] - 2025-09-13
 ### Changed
 - Versiebump voor distributie; bevat config flow stabilisatie (CSV domains) en voorbereidingen voor toekomstige multi-select UI.
