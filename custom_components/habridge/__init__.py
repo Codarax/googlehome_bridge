@@ -54,9 +54,11 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
 
     async def _register_panel(*_):
         if hass.data.get(PANEL_ID):
+            LOGGER.debug("habridge: panel '%s' already registered, skipping", PANEL_ID)
             return
         try:
             from homeassistant.components import frontend  # type: ignore
+            LOGGER.debug("habridge: attempting sidebar panel registration")
             fn = getattr(frontend, "async_register_panel", None)
             if fn:
                 fn(
@@ -75,6 +77,7 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
             built_in = getattr(frontend, "async_register_built_in_panel", None)
             if built_in:
                 built_in(
+                    hass,
                     component_name="iframe",
                     sidebar_title="HA Bridge",
                     sidebar_icon="mdi:bridge",

@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.0.5] - 2025-09-13
+### Fixed
+- Sidebar panel registratie: ontbrak vereiste `hass` argument bij fallback `async_register_built_in_panel`, veroorzaakt warning en geen panel. Correcte aanroep + extra debug logging toegevoegd.
+- Voorkomt dubbele registratie met duidelijke debug melding.
+
 ## [2.0.1] - 2025-09-13
 ### Fixed
 - Config flow crash (500) door Voluptuous serialisatie van lijst `[str]`. Expose domains veld verplaatst naar opties en nu als CSV str opgeslagen.
