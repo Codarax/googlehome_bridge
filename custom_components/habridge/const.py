@@ -1,0 +1,15 @@
+DOMAIN = "habridge"
+STORAGE_TOKENS = "habridge_tokens"
+STORAGE_DEVICES = "habridge_devices"
+CONF_CLIENT_ID = "client_id"
+CONF_CLIENT_SECRET = "client_secret"
+CONF_ADMIN_API_KEY = "admin_api_key"
+CONF_EXPOSE_DOMAINS = "expose_domains"
+DEFAULT_EXPOSE = ["switch", "light"]
+OAUTH_PATH = "/habridge/oauth"
+TOKEN_PATH = "/habridge/token"
+SMARTHOME_PATH = "/habridge/smarthome"
+HEALTH_PATH = "/habridge/health"
+JWT_ALG = "HS256"
+ACCESS_TOKEN_TTL = 3600
+REFRESH_TOKEN_TTL = 86400
