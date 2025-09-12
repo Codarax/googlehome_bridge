@@ -1,5 +1,6 @@
 from __future__ import annotations
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
@@ -48,16 +49,31 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
     hass.http.register_view(AdminPageView())
     hass.http.register_view(DevicesView(hass, device_mgr))
 
-    if PANEL_ID not in hass.data:
-        hass.components.frontend.async_register_built_in_panel(
-            component_name="iframe",
-            sidebar_title="HA Bridge",
-            sidebar_icon="mdi:bridge",
-            frontend_url_path=PANEL_ID,
-            config={"url": "/habridge/admin"},
-            require_admin=True,
-        )
-        hass.data[PANEL_ID] = True
+    async def _register_panel(*_):
+        if hass.data.get(PANEL_ID):
+            return
+        try:
+            # Prefer built-in panel helper if available
+            frontend = __import__("homeassistant.components.frontend", fromlist=["async_register_built_in_panel"])
+            register_fn = getattr(frontend, "async_register_built_in_panel", None)
+            if register_fn:
+                register_fn(
+                    component_name="iframe",
+                    sidebar_title="HA Bridge",
+                    sidebar_icon="mdi:bridge",
+                    frontend_url_path=PANEL_ID,
+                    config={"url": "/habridge/admin"},
+                    require_admin=True,
+                )
+            hass.data[PANEL_ID] = True
+        except Exception:  # noqa: BLE001
+            # Silent fail; admin can still reach /habridge/admin directly
+            pass
+
+    if hass.is_running:
+        hass.async_create_task(_register_panel())
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _register_panel)
     return hass.data[DOMAIN]
 
 async def async_setup(hass: HomeAssistant, config: ConfigType):

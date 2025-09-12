@@ -4,6 +4,10 @@
 ### Fixed
 - Config flow crash (500) door Voluptuous serialisatie van lijst `[str]`. Expose domains veld verplaatst naar opties en nu als CSV str opgeslagen.
 
+## [2.0.3] - 2025-09-13
+### Fixed
+- Panel registratie AttributeError (hass.components.frontend niet beschikbaar tijdens setup entry) nu uitgesteld tot HA start event.
+
 ## [2.0.2] - 2025-09-13
 ### Changed
 - Versiebump voor distributie; bevat config flow stabilisatie (CSV domains) en voorbereidingen voor toekomstige multi-select UI.
