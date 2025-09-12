@@ -1,0 +1,6 @@
+{
+  "name": "HA Google Home Bridge",
+  "render_readme": true,
+  "country": ["NL", "US", "DE"],
+  "homeassistant": "2024.6.0"
+}
