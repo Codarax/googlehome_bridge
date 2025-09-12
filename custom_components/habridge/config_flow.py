@@ -11,7 +11,6 @@ from .const import DOMAIN, CONF_CLIENT_ID, CONF_CLIENT_SECRET, CONF_EXPOSE_DOMAI
 STEP_USER_SCHEMA = vol.Schema({
     vol.Required(CONF_CLIENT_ID): str,
     vol.Required(CONF_CLIENT_SECRET): str,
-    vol.Optional(CONF_EXPOSE_DOMAINS, default=DEFAULT_EXPOSE): [str],
 })
 
 class HABridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -24,7 +23,9 @@ class HABridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Set a fixed unique_id so HA enforces single instance
             await self.async_set_unique_id(DOMAIN)
             self._abort_if_unique_id_configured()
-            return self.async_create_entry(title="HA Bridge", data=user_input)
+            # Inject default expose domains until options edited
+            complete = {**user_input, CONF_EXPOSE_DOMAINS: DEFAULT_EXPOSE}
+            return self.async_create_entry(title="HA Bridge", data=complete)
         return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA)
 
     async def async_step_import(self, user_input: Dict[str, Any]) -> FlowResult:
@@ -38,10 +39,12 @@ class HABridgeOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="Options", data=user_input)
         data = {**self.config_entry.data, **(self.config_entry.options or {})}
+        # Allow user to edit exposed domains as comma-separated text (simple, avoids list schema issues)
+        domains_csv = ",".join(data.get(CONF_EXPOSE_DOMAINS, DEFAULT_EXPOSE))
         schema = vol.Schema({
             vol.Required(CONF_CLIENT_ID, default=data.get(CONF_CLIENT_ID, "")): str,
             vol.Required(CONF_CLIENT_SECRET, default=data.get(CONF_CLIENT_SECRET, "")): str,
-            vol.Optional(CONF_EXPOSE_DOMAINS, default=data.get(CONF_EXPOSE_DOMAINS, DEFAULT_EXPOSE)): [str],
+            vol.Optional(CONF_EXPOSE_DOMAINS, default=domains_csv): str,
         })
         return self.async_show_form(step_id="init", data_schema=schema)
 

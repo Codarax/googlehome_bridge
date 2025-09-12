@@ -75,7 +75,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     client_id = data.get(CONF_CLIENT_ID, "client-id")
     client_secret = data.get(CONF_CLIENT_SECRET, "client-secret")
     # Options override expose domains if present
-    expose_domains = entry.options.get(CONF_EXPOSE_DOMAINS) if entry.options else data.get(CONF_EXPOSE_DOMAINS)
+    expose_raw = entry.options.get(CONF_EXPOSE_DOMAINS) if entry.options else data.get(CONF_EXPOSE_DOMAINS)
+    if isinstance(expose_raw, str):
+        expose_domains = [d.strip() for d in expose_raw.split(',') if d.strip()]
+    else:
+        expose_domains = expose_raw
     await _async_setup_internal(hass, client_id=client_id, client_secret=client_secret, expose_domains=expose_domains)
     return True
 
@@ -89,7 +93,11 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry):
         return
     device_mgr = stored.get("device_mgr")
     if device_mgr:
-        new_domains = entry.options.get(CONF_EXPOSE_DOMAINS) if entry.options else entry.data.get(CONF_EXPOSE_DOMAINS)
+        new_raw = entry.options.get(CONF_EXPOSE_DOMAINS) if entry.options else entry.data.get(CONF_EXPOSE_DOMAINS)
+        if isinstance(new_raw, str):
+            new_domains = [d.strip() for d in new_raw.split(',') if d.strip()]
+        else:
+            new_domains = new_raw
         if new_domains:
             device_mgr.expose_domains = new_domains
             await device_mgr.auto_select_if_empty()

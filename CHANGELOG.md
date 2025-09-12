@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.1] - 2025-09-13
+### Fixed
+- Config flow crash (500) door Voluptuous serialisatie van lijst `[str]`. Expose domains veld verplaatst naar opties en nu als CSV str opgeslagen.
+
 ## [2.0.0] - 2025-09-12
 ### Breaking / Major
 - Volledige herbouw als geïntegreerde Home Assistant custom component (geen losse add-on poort /5000 meer nodig).
