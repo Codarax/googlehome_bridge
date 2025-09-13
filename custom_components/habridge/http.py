@@ -116,31 +116,108 @@ class HealthView(HomeAssistantView):
 # ---- Admin / Devices ----
 
 ADMIN_HTML_BASE = """<!DOCTYPE html><html><head><meta charset='utf-8'/><title>HA Bridge Devices</title>
-<style>body{font-family:Arial;margin:1rem;}table{border-collapse:collapse;width:100%;}th,td{padding:4px 8px;border-bottom:1px solid #ccc;}input[type=search]{width:300px;padding:4px;margin-bottom:8px;} .on{color:green;font-weight:600;} .off{color:#999;} button{padding:4px 10px;}</style></head>
-<body><h2>HA Bridge Devices</h2><input id='q' placeholder='Search' type='search' oninput='filter()' /> <button onclick='bulk(true)'>Select All</button> <button onclick='bulk(false)'>Clear All</button>
-<table id='tbl'><thead><tr><th>Entity</th><th>Name</th><th>Domain</th><th>Selected</th></tr></thead><tbody></tbody></table>
+<style>
+body{font-family:Inter,Arial,sans-serif;margin:0;background:#f6f7f9;color:#222;}
+header{background:#243447;color:#fff;padding:10px 18px;display:flex;align-items:center;gap:24px;}
+header h1{font-size:18px;margin:0;font-weight:600;}
+nav a{color:#cfd6dd;text-decoration:none;margin-right:16px;font-size:14px;}
+nav a.active{color:#fff;font-weight:600;}
+.wrap{padding:16px 22px;}
+table{border-collapse:collapse;width:100%;background:#fff;border:1px solid #d9dee3;border-radius:6px;overflow:hidden;}
+th{background:#eef1f4;text-align:left;padding:6px 10px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:#4a5560;}
+td{padding:6px 10px;font-size:14px;border-top:1px solid #edf0f2;}
+tr:hover{background:#f2f6fb;}
+input[type=search]{width:260px;padding:6px 10px;border:1px solid #c7ccd1;border-radius:4px;}
+button,select{padding:6px 12px;border:1px solid #c7ccd1;border-radius:4px;background:#fff;cursor:pointer;font-size:13px;}
+button:hover{background:#f0f3f5;}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;}
+.pill{display:inline-block;padding:2px 8px;font-size:11px;border-radius:12px;background:#243447;color:#fff;margin-left:8px;}
+.domain-icon{font-size:16px;width:22px;display:inline-block;text-align:center;}
+.badge{background:#e1e6eb;padding:2px 6px;border-radius:10px;font-size:11px;margin-left:4px;}
+.muted{color:#6a737d;font-size:12px;margin-left:4px;}
+.toggle-wrap{display:flex;align-items:center;gap:6px;font-size:13px;}
+.filter-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;}
+</style></head>
+<body>
+<header>
+    <h1>HA Bridge</h1>
+    <nav>
+        <a href="#" class="active" onclick="showView('devices');return false;">Devices</a>
+        <a href="#" onclick="showView('logs');return false;">Logs</a>
+        <a href="#" onclick="showView('settings');return false;">Settings</a>
+    </nav>
+    <span id="counts" class="pill"></span>
+</header>
+<div class="wrap">
+    <div id="view-devices">
+        <div class="toolbar">
+            <div class="filter-row">
+                <input id='q' placeholder='Search...' type='search' />
+                <select id='domainFilter'><option value=''>All domains</option></select>
+                <label class='toggle-wrap'><input type='checkbox' id='onlySel'/> Selected only</label>
+                <button onclick='bulk(true)'>Select All</button>
+                <button onclick='bulk(false)'>Clear All</button>
+            </div>
+        </div>
+        <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Domain</th><th style='width:80px;'>Selected</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div id="view-logs" style="display:none;">
+        <p class='muted'>Logs weergave komt in een latere release.</p>
+    </div>
+    <div id="view-settings" style="display:none;">
+        <p class='muted'>Client ID/Secret wijzigen via Home Assistant Integratie → Opties.</p>
+    </div>
+</div>
 <script>
 const urlParams=new URLSearchParams(window.location.search);const ADMIN_TOKEN=urlParams.get('token');
+let _rows=[];let _filtered=[];let _domainSet=new Set();
+const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟'};
+document.getElementById('q').addEventListener('input',filter);
+document.getElementById('domainFilter').addEventListener('change',filter);
+document.getElementById('onlySel').addEventListener('change',filter);
+function showView(v){['devices','logs','settings'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));document.querySelectorAll('nav a')[v==='devices'?0:(v==='logs'?1:2)].classList.add('active');}
 async function load(){
     const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
-  const data=await r.json();
-  window._rows=data.devices;render();
+    const data=await r.json();
+    _rows=data.devices.map((d,i)=>({...d, stable:d.id}));
+    _domainSet=new Set(_rows.map(r=>r.domain));
+    populateDomainFilter();
+    filter();
+}
+function populateDomainFilter(){
+    const sel=document.getElementById('domainFilter');
+    const cur=sel.value; sel.innerHTML='<option value="">All domains</option>' + Array.from(_domainSet).sort().map(d=>`<option value="${d}">${d}</option>`).join('');
+    if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+function filter(){
+    const q=document.getElementById('q').value.trim().toLowerCase();
+    const onlySel=document.getElementById('onlySel').checked;
+    const domainF=document.getElementById('domainFilter').value;
+    _filtered=_rows.filter(r=>{
+         if(onlySel && !r.selected) return false;
+         if(domainF && r.domain!==domainF) return false;
+         if(!q) return true;
+         return (r.id.toLowerCase().includes(q) || (r.name||'').toLowerCase().includes(q) || r.domain.toLowerCase().includes(q));
+    });
+    render();
 }
 function render(){
-  const q=document.getElementById('q').value.toLowerCase();
-  const tb=document.querySelector('#tbl tbody');
-  tb.innerHTML='';
-  window._rows.filter(r=>!q||r.id.includes(q)|| (r.name||'').toLowerCase().includes(q)).forEach(r=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${r.id}</td><td>${r.name||''}</td><td>${r.domain}</td><td><input type='checkbox' ${r.selected?'checked':''} onchange='toggle("${r.id}",this.checked)'/></td>`;
-    tb.appendChild(tr);
-  });
+    const tb=document.querySelector('#tbl tbody');tb.innerHTML='';
+    _filtered.forEach((r,idx)=>{
+        const tr=document.createElement('tr');
+        const icon=icons[r.domain]||'🔘';
+        tr.innerHTML=`<td>${idx+1}</td><td>${r.id}</td><td><span class='domain-icon'>${icon}</span>${r.name||''}</td><td>${r.domain}</td><td style='text-align:center;'><input type='checkbox' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'/></td>`;
+        tb.appendChild(tr);
+    });
+    document.getElementById('counts').textContent=`${_filtered.length} / ${_rows.length}`;
 }
-async function toggle(id,val){
-    await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:{[id]:val}})});load();
+async function toggleDevice(id,val){
+    await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:{[id]:val}})});
+    const row=_rows.find(r=>r.id===id); if(row) row.selected=val; filter();
 }
 async function bulk(val){
-    const ups={};window._rows.forEach(r=>ups[r.id]=val);await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:ups})});load();
+    const ups={};_filtered.forEach(r=>ups[r.id]=val);await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:ups})});
+    _filtered.forEach(r=>r.selected=val);_rows.forEach(r=>{if(ups[r.id]!==undefined) r.selected=val}); filter();
 }
 load();
 </script></body></html>"""

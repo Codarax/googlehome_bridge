@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.0] - 2025-09-13
+### Added
+- Stable device IDs met persistent mapping; Google devices verdwijnen niet meer bij entity_id wijziging.
+- Brightness trait ondersteuning voor lights (SYNC/QUERY/EXECUTE).
+- Admin UI verbeterd: header navigatie, live search (case-insensitive), domain filter, selected-only toggle, icons, telling (#filtered/#total).
+### Changed
+- SYNC levert nu `otherDeviceIds` met originele Home Assistant entity_id voor compatibiliteit.
+- EXECUTE vertaalt stable IDs terug naar entity IDs.
+### Notes
+- Eerste run genereert mapping; bestaande gekoppelde apparaten kunnen één refresh vereisen in Google Home om nieuwe capabilities te tonen.
+
+
 ## [2.0.7] - 2025-09-13
 ### Added / Fixed
 - Smart Home fulfillment logging (intent, device counts, exceptions) voor diagnose van Google koppelfouten.
