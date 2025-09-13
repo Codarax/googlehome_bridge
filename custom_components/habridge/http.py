@@ -70,6 +70,12 @@ class SmartHomeView(HomeAssistantView):
         self.token_mgr = token_mgr
         self.device_mgr = device_mgr
         self.client_secret = client_secret
+        self._log_buf: list[dict] = []
+
+    def _push_log(self, intent: str, detail: str):
+        self._log_buf.append({"ts": self.hass.loop.time()*1000, "intent": intent, "detail": detail[:500]})
+        if len(self._log_buf) > 50:
+            self._log_buf.pop(0)
 
     async def post(self, request):
         logger = logging.getLogger(__name__)
@@ -85,24 +91,62 @@ class SmartHomeView(HomeAssistantView):
             if intent == "action.devices.SYNC":
                 devices = self.device_mgr.build_sync()
                 logger.info("habridge: SYNC returns %d devices", len(devices))
+                self._push_log("SYNC", f"devices={len(devices)}")
                 return web.json_response({"requestId": request_id, "payload": {"agentUserId": "user", "devices": devices}})
             if intent == "action.devices.QUERY":
                 devices = {}
                 for eid in self.device_mgr.selected():
                     st = self.hass.states.get(eid)
-                    if st:
+                    if not st:
+                        continue
+                    domain = st.domain
+                    if domain in ("switch", "light"):
                         devices[eid] = {"on": st.state == "on", "online": True}
+                        if domain == "light" and st.attributes.get("brightness") is not None:
+                            bri = st.attributes.get("brightness")
+                            pct = int(round(bri * 100 / 255))
+                            devices[eid]["brightness"] = pct
+                    elif domain == "climate":
+                        cur = st.attributes.get("current_temperature")
+                        hvac = st.state
+                        # Map HA hvac state -> Google mode
+                        mode_map = {
+                            "off": "off",
+                            "heat": "heat",
+                            "cool": "cool",
+                            "heat_cool": "heatcool",
+                            "auto": "heatcool",
+                            "fan_only": "fan-only",
+                            "dry": "dry",
+                        }
+                        g_mode = mode_map.get(hvac, "off")
+                        resp = {"online": True, "thermostatMode": g_mode}
+                        if cur is not None:
+                            resp["thermostatTemperatureAmbient"] = cur
+                        target = st.attributes.get("temperature")
+                        if target is not None:
+                            resp["thermostatTemperatureSetpoint"] = target
+                        low = st.attributes.get("target_temp_low")
+                        high = st.attributes.get("target_temp_high")
+                        if low is not None and high is not None:
+                            resp["thermostatTemperatureSetpointLow"] = low
+                            resp["thermostatTemperatureSetpointHigh"] = high
+                        devices[eid] = resp
                 logger.debug("habridge: QUERY devices=%d", len(devices))
+                self._push_log("QUERY", f"devices={len(devices)}")
                 return web.json_response({"requestId": request_id, "payload": {"devices": devices}})
             if intent == "action.devices.EXECUTE":
                 commands = body.get("inputs", [{}])[0].get("payload", {}).get("commands", [])
                 results = await self.device_mgr.execute(commands)
                 logger.info("habridge: EXECUTE processed %d command groups", len(commands))
+                self._push_log("EXECUTE", f"groups={len(commands)} results={len(results)}")
                 return web.json_response({"requestId": request_id, "payload": {"commands": [{"ids": r["ids"], "status": r["status"]} for r in results]}})
             logger.warning("habridge: unknown intent '%s'", intent)
+            self._push_log("UNKNOWN", intent or '')
             return web.json_response({"requestId": request_id, "payload": {}}, status=200)
         except Exception as exc:  # noqa: BLE001
             logger.exception("habridge: exception processing intent %s", intent)
+            self._push_log("ERROR", str(exc))
             return web.json_response({"requestId": request_id, "payload": {"errorCode": "internalError"}}, status=500)
 
 class HealthView(HomeAssistantView):
@@ -115,7 +159,7 @@ class HealthView(HomeAssistantView):
 
 # ---- Admin / Devices ----
 
-ADMIN_HTML_BASE = """<!DOCTYPE html><html><head><meta charset='utf-8'/><title>HA Bridge Devices</title>
+ADMIN_HTML_BASE = """<!DOCTYPE html><html><head><meta charset='utf-8'/><title>HA Bridge Admin</title>
 <style>
 body{font-family:Inter,Arial,sans-serif;margin:0;background:#f6f7f9;color:#222;}
 header{background:#243447;color:#fff;padding:10px 18px;display:flex;align-items:center;gap:24px;}
@@ -123,7 +167,7 @@ header h1{font-size:18px;margin:0;font-weight:600;}
 nav a{color:#cfd6dd;text-decoration:none;margin-right:16px;font-size:14px;}
 nav a.active{color:#fff;font-weight:600;}
 .wrap{padding:16px 22px;}
-table{border-collapse:collapse;width:100%;background:#fff;border:1px solid #d9dee3;border-radius:6px;overflow:hidden;}
+table{border-collapse:collapse;width:100%;background:#fff;border:1px solid #d9dee3;border-radius:6px;overflow:hidden;margin-bottom:18px;}
 th{background:#eef1f4;text-align:left;padding:6px 10px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:#4a5560;}
 td{padding:6px 10px;font-size:14px;border-top:1px solid #edf0f2;}
 tr:hover{background:#f2f6fb;}
@@ -162,20 +206,31 @@ button:hover{background:#f0f3f5;}
         <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Domain</th><th style='width:80px;'>Selected</th></tr></thead><tbody></tbody></table>
     </div>
     <div id="view-logs" style="display:none;">
-        <p class='muted'>Logs weergave komt in een latere release.</p>
+        <div class='toolbar'>
+            <button onclick='refreshLogs()'>Refresh Logs</button>
+            <button onclick='clearLogs()'>Clear</button>
+        </div>
+        <table id='logtbl'><thead><tr><th style='width:160px;'>Time</th><th>Intent</th><th>Info</th></tr></thead><tbody></tbody></table>
     </div>
-    <div id="view-settings" style="display:none;">
-        <p class='muted'>Client ID/Secret wijzigen via Home Assistant Integratie → Opties.</p>
+    <div id="view-settings" style="display:none;max-width:640px;">
+        <h3>Settings</h3>
+        <div style='background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:14px;'>
+            <p class='muted'>Client ID & Secret pas je aan via Integratie → Opties in Home Assistant.</p>
+            <h4>Debug / Tools</h4>
+            <button onclick='showSyncPreview()'>Force SYNC Preview</button>
+            <pre id='syncPreview' style='margin-top:12px;display:none;max-height:300px;overflow:auto;background:#243447;color:#d6e4f2;padding:10px;font-size:12px;border-radius:6px;'></pre>
+        </div>
     </div>
 </div>
 <script>
 const urlParams=new URLSearchParams(window.location.search);const ADMIN_TOKEN=urlParams.get('token');
 let _rows=[];let _filtered=[];let _domainSet=new Set();
 const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟'};
+let _logs=[];
 document.getElementById('q').addEventListener('input',filter);
 document.getElementById('domainFilter').addEventListener('change',filter);
 document.getElementById('onlySel').addEventListener('change',filter);
-function showView(v){['devices','logs','settings'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));document.querySelectorAll('nav a')[v==='devices'?0:(v==='logs'?1:2)].classList.add('active');}
+function showView(v){['devices','logs','settings'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));document.querySelectorAll('nav a')[v==='devices'?0:(v==='logs'?1:2)].classList.add('active'); if(v==='logs'){refreshLogs();}}
 async function load(){
     const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
     const data=await r.json();
@@ -218,6 +273,22 @@ async function toggleDevice(id,val){
 async function bulk(val){
     const ups={};_filtered.forEach(r=>ups[r.id]=val);await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:ups})});
     _filtered.forEach(r=>r.selected=val);_rows.forEach(r=>{if(ups[r.id]!==undefined) r.selected=val}); filter();
+}
+async function refreshLogs(){
+    const r=await fetch('/habridge/logs?token='+encodeURIComponent(ADMIN_TOKEN));
+    if(!r.ok) return; const data=await r.json(); _logs=data.logs||[]; renderLogs();
+}
+function renderLogs(){
+    const tb=document.querySelector('#logtbl tbody'); if(!tb) return; tb.innerHTML='';
+    _logs.forEach(l=>{const tr=document.createElement('tr'); tr.innerHTML=`<td>${new Date(l.ts).toLocaleTimeString()}</td><td>${l.intent}</td><td><code style='font-size:11px;'>${(l.detail||'').replace(/[<>]/g,'')}</code></td>`; tb.appendChild(tr);});
+}
+async function clearLogs(){ await fetch('/habridge/logs?token='+encodeURIComponent(ADMIN_TOKEN),{method:'DELETE'}); _logs=[]; renderLogs(); }
+async function showSyncPreview(){
+    const pre=document.getElementById('syncPreview');
+    if(pre.style.display==='none'){
+         const r=await fetch('/habridge/sync_preview?token='+encodeURIComponent(ADMIN_TOKEN));
+         if(r.ok){ const data=await r.json(); pre.textContent=JSON.stringify(data,null,2); pre.style.display='block'; }
+    } else { pre.style.display='none'; }
 }
 load();
 </script></body></html>"""
@@ -269,3 +340,41 @@ class DevicesView(HomeAssistantView):
         updates = data.get("updates", {})
         await self.device_mgr.bulk_update(updates)
         return web.json_response({"status": "ok"})
+
+class LogsView(HomeAssistantView):
+    url = "/habridge/logs"
+    name = "habridge:logs"
+    requires_auth = False
+
+    def __init__(self, smart_view: SmartHomeView, admin_token: str):
+        self._smart = smart_view
+        self._token = admin_token
+
+    async def get(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        return web.json_response({"logs": self._smart._log_buf})
+
+    async def delete(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        self._smart._log_buf.clear()
+        return web.json_response({"status": "cleared"})
+
+class SyncPreviewView(HomeAssistantView):
+    url = "/habridge/sync_preview"
+    name = "habridge:sync_preview"
+    requires_auth = False
+
+    def __init__(self, device_mgr: DeviceManager, admin_token: str):
+        self._dm = device_mgr
+        self._token = admin_token
+
+    async def get(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        devices = self._dm.build_sync()
+        return web.json_response({"devices": devices})

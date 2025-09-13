@@ -6,7 +6,11 @@ from homeassistant.helpers.storage import Store
 
 from .const import DEFAULT_EXPOSE, STORAGE_IDMAP
 
-SUPPORTED_DOMAINS = {"switch": ["action.devices.types.SWITCH"], "light": ["action.devices.types.LIGHT"]}
+SUPPORTED_DOMAINS = {
+    "switch": ["action.devices.types.SWITCH"],
+    "light": ["action.devices.types.LIGHT"],
+    "climate": ["action.devices.types.THERMOSTAT"],
+}
 
 def _slugify_entity(eid: str) -> str:
     if '.' in eid:
@@ -90,9 +94,37 @@ class DeviceManager:
             if domain not in SUPPORTED_DOMAINS:
                 continue
             sid = self.stable_id(eid)
-            traits = ["action.devices.traits.OnOff"]
-            if domain == "light" and state.attributes.get(ATTR_BRIGHTNESS) is not None:
-                traits.append("action.devices.traits.Brightness")
+            traits = []
+            attrs = {}
+            if domain in ("switch", "light"):
+                traits.append("action.devices.traits.OnOff")
+                if domain == "light" and state.attributes.get(ATTR_BRIGHTNESS) is not None:
+                    traits.append("action.devices.traits.Brightness")
+            elif domain == "climate":
+                traits.append("action.devices.traits.TemperatureSetting")
+                hvac_modes = state.attributes.get("hvac_modes", [])
+                # Map HA hvac modes to Google thermostat modes
+                mode_map = {
+                    "off": "off",
+                    "heat": "heat",
+                    "cool": "cool",
+                    "heat_cool": "heatcool",
+                    "auto": "heatcool",  # treat auto as heatcool for Google
+                    "fan_only": "fan-only",
+                    "dry": "dry",
+                }
+                g_modes = []
+                for m in hvac_modes:
+                    gm = mode_map.get(m)
+                    if gm and gm not in g_modes:
+                        g_modes.append(gm)
+                if not g_modes:
+                    g_modes = ["off", "heat", "cool"]
+                unit = getattr(self.hass.config.units, 'temperature_unit', 'C')
+                attrs = {
+                    "availableThermostatModes": ",".join(g_modes),
+                    "thermostatTemperatureUnit": unit,
+                }
             dev = {
                 "id": sid,
                 "type": SUPPORTED_DOMAINS[domain][0],
@@ -101,6 +133,8 @@ class DeviceManager:
                 "willReportState": False,
                 "otherDeviceIds": [{"deviceId": eid}],
             }
+            if attrs:
+                dev["attributes"] = attrs
             devices.append(dev)
         return devices
 
@@ -127,6 +161,36 @@ class DeviceManager:
                         pct = params["brightness"]
                         bri = max(0, min(255, round(pct * 255 / 100)))
                         await self.hass.services.async_call("light", "turn_on", {"entity_id": eid, "brightness": bri}, blocking=False)
+                        results.append({"ids": [sid], "status": "SUCCESS"})
+                    elif ctype == "action.devices.commands.ThermostatSetMode" and domain == "climate":
+                        mode = params.get("thermostatMode")
+                        # Map Google -> HA
+                        inv_map = {
+                            "off": "off",
+                            "heat": "heat",
+                            "cool": "cool",
+                            "heatcool": "heat_cool",
+                            "fan-only": "fan_only",
+                            "dry": "dry",
+                        }
+                        ha_mode = inv_map.get(mode)
+                        if ha_mode:
+                            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": ha_mode}, blocking=False)
+                            results.append({"ids": [sid], "status": "SUCCESS"})
+                    elif ctype == "action.devices.commands.ThermostatTemperatureSetpoint" and domain == "climate":
+                        temp = params.get("thermostatTemperatureSetpoint")
+                        if temp is not None:
+                            await self.hass.services.async_call("climate", "set_temperature", {"entity_id": eid, "temperature": temp}, blocking=False)
+                            results.append({"ids": [sid], "status": "SUCCESS"})
+                    elif ctype == "action.devices.commands.ThermostatTemperatureSetRange" and domain == "climate":
+                        low = params.get("thermostatTemperatureSetpointLow")
+                        high = params.get("thermostatTemperatureSetpointHigh")
+                        data = {"entity_id": eid}
+                        if low is not None:
+                            data["target_temp_low"] = low
+                        if high is not None:
+                            data["target_temp_high"] = high
+                        await self.hass.services.async_call("climate", "set_temperature", data, blocking=False)
                         results.append({"ids": [sid], "status": "SUCCESS"})
         return results
 

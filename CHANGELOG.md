@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0] - 2025-09-13
+### Added
+- Climate domain ondersteuning: Thermostat (TemperatureSetting trait) met modes (off/heat/cool/heatcool/fan-only/dry indien beschikbaar).
+- EXECUTE support: ThermostatSetMode, ThermostatTemperatureSetpoint, ThermostatTemperatureSetRange.
+- QUERY uitgebreid voor climate: huidige mode, ambient temperatuur, setpoint of range.
+- Admin UI: werkende Logs (rolling 50 intent events) + Settings sectie met Force SYNC Preview tool.
+### Changed
+- SYNC voegt thermostat attributen toe (availableThermostatModes, thermostatTemperatureUnit) voor climate devices.
+- QUERY voor lights bevat nu brightness percentage indien beschikbaar.
+### Notes
+- Force SYNC Preview toont actuele payload zonder Google call; handig voor debug.
+- Log buffer wordt niet persistently opgeslagen (alleen runtime).
+
+
 ## [2.1.0] - 2025-09-13
 ### Added
 - Stable device IDs met persistent mapping; Google devices verdwijnen niet meer bij entity_id wijziging.
