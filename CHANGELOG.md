@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.3.1] - 2025-09-13
+### Fixed
+- Import error: verwijderde `ATTR_BRIGHTNESS` import uit `homeassistant.const` vervangen door lokale fallback string om compatibiliteit met nieuwere HA versies te behouden.
+
+
 ## [2.3.0] - 2025-09-13
 ### Added
 - Temperatuur & luchtvochtigheid sensoren (device_class temperature / humidity) exposed als Google SENSOR devices.

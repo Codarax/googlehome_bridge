@@ -61,7 +61,11 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
             LOGGER.debug("habridge: panel '%s' already registered, skipping", PANEL_ID)
             return
         try:
-            from homeassistant.components import frontend  # type: ignore
+            # Import in executor to avoid blocking warning in event loop on some cores
+            def _import_frontend():
+                from homeassistant.components import frontend  # type: ignore
+                return frontend
+            frontend = await hass.async_add_executor_job(_import_frontend)
             LOGGER.debug("habridge: attempting sidebar panel registration")
             fn = getattr(frontend, "async_register_panel", None)
             if fn:
@@ -77,7 +81,6 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
                 LOGGER.info("habridge: sidebar panel registered as '%s' -> /habridge/admin", PANEL_ID)
                 hass.data[PANEL_ID] = True
                 return
-            # fallback built-in style
             built_in = getattr(frontend, "async_register_built_in_panel", None)
             if built_in:
                 built_in(

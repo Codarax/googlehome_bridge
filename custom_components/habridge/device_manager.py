@@ -1,10 +1,13 @@
 from __future__ import annotations
 from typing import Dict, List
 import re
-from homeassistant.const import ATTR_BRIGHTNESS
 from homeassistant.helpers.storage import Store
 
 from .const import DEFAULT_EXPOSE, STORAGE_IDMAP
+
+# HA Core >= 2025.x heeft ATTR_BRIGHTNESS mogelijk niet meer in homeassistant.const.
+# We gebruiken een lokale fallback string zodat de integratie niet breekt.
+ATTR_BRIGHTNESS = "brightness"
 
 SUPPORTED_DOMAINS = {
     "switch": ["action.devices.types.SWITCH"],
