@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.3.6] - 2025-09-13
+### Added
+- Logging van SELECT (device selectie wijzigingen) in zelfde buffer.
+### Changed
+- Log timestamps gebaseerd op realtime (time.time) i.p.v. event loop time.
+- Toggle frontend: pending selectie heeft absolute prioriteit tijdens refresh (geen tussenfase meer zichtbaar).
+### Fixed
+- Flicker na toggle (kortstondige inversie) verminderd door verwijderen van fallback merge.
+### Notes
+- SELECT log detail toont max 10 sample pairs; volledige diff kan later optioneel.
+
 ## [2.3.5] - 2025-09-13
 ### Fixed
 - Admin page onbruikbaar door JavaScript syntax error (dubbele `});` in visibilitychange listener) hersteld.

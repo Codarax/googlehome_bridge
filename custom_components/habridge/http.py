@@ -73,8 +73,9 @@ class SmartHomeView(HomeAssistantView):
         self._log_buf: list[dict] = []
 
     def _push_log(self, intent: str, detail: str, request_id: str | None = None):
+        import time
         self._log_buf.append({
-            "ts": self.hass.loop.time()*1000,
+            "ts": int(time.time()*1000),
             "intent": intent,
             "detail": detail[:800],
             "rid": request_id or "-"
@@ -287,7 +288,7 @@ async function refreshDevicesValue(){
     const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
     if(!r.ok) return;
     const data=await r.json();
-    _rows=data.devices.map(d=>({ ...d, selected: _pendingSelections[d.id] ?? d.selected ?? previous[d.id] ?? false }));
+    _rows=data.devices.map(d=>({ ...d, selected: (_pendingSelections.hasOwnProperty(d.id)? _pendingSelections[d.id] : d.selected ) }));
     _domainSet=new Set(_rows.map(r=>r.domain));
     populateDomainFilter();
     filter();
@@ -410,10 +411,11 @@ class DevicesView(HomeAssistantView):
     name = "habridge:devices"
     requires_auth = False
 
-    def __init__(self, hass: HomeAssistant, device_mgr: DeviceManager, admin_token: str):
+    def __init__(self, hass: HomeAssistant, device_mgr: DeviceManager, admin_token: str, smart_view: SmartHomeView):
         self.hass = hass
         self.device_mgr = device_mgr
         self._token = admin_token
+        self._smart = smart_view
 
     async def get(self, request):
         supplied = request.query.get('token')
@@ -461,6 +463,9 @@ class DevicesView(HomeAssistantView):
         data = await request.json()
         updates = data.get("updates", {})
         await self.device_mgr.bulk_update(updates)
+        if getattr(self, '_smart', None):
+            changed = ",".join([f"{k}={v}" for k,v in updates.items()][:10])
+            self._smart._push_log("SELECT", f"updates={len(updates)} sample={changed}")
         return web.json_response({"status": "ok"})
 
 class LogsView(HomeAssistantView):

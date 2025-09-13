@@ -73,7 +73,7 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
 
     hass.http.register_view(HealthView())
     hass.http.register_view(AdminPageView(admin_token))
-    hass.http.register_view(DevicesView(hass, device_mgr, admin_token))
+    hass.http.register_view(DevicesView(hass, device_mgr, admin_token, smart_view))
     hass.http.register_view(LogsView(smart_view, admin_token))
     hass.http.register_view(SyncPreviewView(device_mgr, admin_token))
 
