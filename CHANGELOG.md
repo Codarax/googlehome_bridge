@@ -1,6 +1,14 @@
 # Changelog
 
 ## [2.3.6] - 2025-09-13
+## [2.3.7] - 2025-09-13
+### Changed
+- Selectie opslaan: bulk_update accepteert nu ook entities zonder actieve state zodat pending keuzes niet kwijtraken.
+- Front-end toggle lock window (4s) voorkomt tussentijdse inversie door refresh.
+- Directe refresh na succesvolle POST vermindert visueel verschil tussen lokale en serverstatus.
+### Notes
+- Lock window wordt na bevestigde server response verkort (800ms). Eventueel later vervangbaar door echte realtime push.
+
 ### Added
 - Logging van SELECT (device selectie wijzigingen) in zelfde buffer.
 ### Changed

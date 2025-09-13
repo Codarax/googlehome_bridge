@@ -248,10 +248,14 @@ class DeviceManager:
 
     async def bulk_update(self, updates: Dict[str, bool]):
         changed = False
+        current_entities = set(self.list_entities())
         for eid, val in updates.items():
-            if eid in self.list_entities():
-                if self._selections.get(eid) != val:
-                    self._selections[eid] = val
-                    changed = True
+            # Allow setting even if entity not yet in current_entities (race with HA startup)
+            if self._selections.get(eid) != val:
+                self._selections[eid] = val
+                changed = True
+            # ensure stable mapping early (so SYNC won't drop it)
+            if eid in current_entities:
+                self._ensure_mapping(eid)
         if changed:
             await self.async_persist()

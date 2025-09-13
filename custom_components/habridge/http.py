@@ -266,7 +266,8 @@ const urlParams=new URLSearchParams(window.location.search);const ADMIN_TOKEN=ur
 let _rows=[];let _filtered=[];let _domainSet=new Set();
 const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟'};
 let _logs=[];let _logTimer=null;let _devTimer=null;
-let _pendingSelections={};
+let _pendingSelections={}; // id -> desired state
+let _pendingLocks={}; // id -> lock until timestamp (ms)
 let _backgroundUpdates=true; // default aan; kan via settings uit
 document.getElementById('q').addEventListener('input',filter);
 document.getElementById('domainFilter').addEventListener('change',filter);
@@ -288,7 +289,13 @@ async function refreshDevicesValue(){
     const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
     if(!r.ok) return;
     const data=await r.json();
-    _rows=data.devices.map(d=>({ ...d, selected: (_pendingSelections.hasOwnProperty(d.id)? _pendingSelections[d.id] : d.selected ) }));
+    const now=Date.now();
+    _rows=data.devices.map(d=>{
+        if(_pendingSelections.hasOwnProperty(d.id) && _pendingLocks[d.id] && _pendingLocks[d.id] > now){
+            return { ...d, selected: _pendingSelections[d.id] };
+        }
+        return { ...d, selected: (_pendingSelections.hasOwnProperty(d.id)? _pendingSelections[d.id] : d.selected ) };
+    });
     _domainSet=new Set(_rows.map(r=>r.domain));
     populateDomainFilter();
     filter();
@@ -330,14 +337,19 @@ function render(){
 async function toggleDevice(id,val){
     // Optimistisch
     _pendingSelections[id]=val;
+    _pendingLocks[id]=Date.now()+4000; // 4s lock window
     const row=_rows.find(r=>r.id===id); if(row) row.selected=val;
     // UI direct updaten zonder volledige filter run om flicker te vermijden
     const el=document.querySelector(`input[type=checkbox][data-id='${id}']`);
     if(el) el.checked=val;
     try {
         const resp=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:{[id]:val}})});
-        if(!resp.ok) throw new Error('HTTP '+resp.status);
-        delete _pendingSelections[id];
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    // direct een refresh triggeren (niet wachten op interval)
+    refreshDevicesValue();
+    // shorten lock window on success
+    _pendingLocks[id]=Date.now()+800; // allow server value to flow soon
+    // remove pending once a confirming refresh passes (handled in refresh merge logic)
     } catch(e){
         // revert bij fout
         const prev=!val; _pendingSelections[id]=prev; if(row) row.selected=prev; if(el) el.checked=prev;
