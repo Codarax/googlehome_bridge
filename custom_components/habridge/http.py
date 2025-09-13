@@ -100,16 +100,16 @@ class SmartHomeView(HomeAssistantView):
                     if not st:
                         continue
                     domain = st.domain
+                    sid = self.device_mgr.stable_id(eid)
                     if domain in ("switch", "light"):
-                        devices[eid] = {"on": st.state == "on", "online": True}
+                        devices[sid] = {"on": st.state == "on", "online": True}
                         if domain == "light" and st.attributes.get("brightness") is not None:
                             bri = st.attributes.get("brightness")
                             pct = int(round(bri * 100 / 255))
-                            devices[eid]["brightness"] = pct
+                            devices[sid]["brightness"] = pct
                     elif domain == "climate":
                         cur = st.attributes.get("current_temperature")
                         hvac = st.state
-                        # Map HA hvac state -> Google mode
                         mode_map = {
                             "off": "off",
                             "heat": "heat",
@@ -131,7 +131,28 @@ class SmartHomeView(HomeAssistantView):
                         if low is not None and high is not None:
                             resp["thermostatTemperatureSetpointLow"] = low
                             resp["thermostatTemperatureSetpointHigh"] = high
-                        devices[eid] = resp
+                        devices[sid] = resp
+                    elif domain == "sensor":
+                        dclass = st.attributes.get("device_class")
+                        if dclass == "temperature":
+                            try:
+                                val = float(st.state)
+                            except Exception:  # noqa: BLE001
+                                continue
+                            devices[sid] = {
+                                "online": True,
+                                "thermostatMode": "off",
+                                "thermostatTemperatureAmbient": val,
+                            }
+                        elif dclass == "humidity":
+                            try:
+                                val = float(st.state)
+                            except Exception:  # noqa: BLE001
+                                continue
+                            devices[sid] = {
+                                "online": True,
+                                "humidityAmbientPercent": val,
+                            }
                 logger.debug("habridge: QUERY devices=%d", len(devices))
                 self._push_log("QUERY", f"devices={len(devices)}")
                 return web.json_response({"requestId": request_id, "payload": {"devices": devices}})

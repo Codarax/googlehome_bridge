@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.3.0] - 2025-09-13
+### Added
+- Temperatuur & luchtvochtigheid sensoren (device_class temperature / humidity) exposed als Google SENSOR devices.
+- Temperatuur sensoren: TemperatureSetting (read-only) met alleen ambient & mode off.
+- Luchtvochtigheid sensoren: HumiditySetting (read-only) met ambient % waarde.
+### Changed
+- QUERY gebruikt nu stabiele IDs als keys (in lijn met SYNC ids) i.p.v. originele entity_id.
+### Notes
+- Sensors zijn read-only; geen setpoints. Niet-ondersteunde sensor device_class wordt overgeslagen.
+
 ## [2.2.0] - 2025-09-13
 ### Added
 - Climate domain ondersteuning: Thermostat (TemperatureSetting trait) met modes (off/heat/cool/heatcool/fan-only/dry indien beschikbaar).

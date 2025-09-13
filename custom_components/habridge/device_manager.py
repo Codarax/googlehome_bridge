@@ -10,6 +10,7 @@ SUPPORTED_DOMAINS = {
     "switch": ["action.devices.types.SWITCH"],
     "light": ["action.devices.types.LIGHT"],
     "climate": ["action.devices.types.THERMOSTAT"],
+    "sensor": ["action.devices.types.SENSOR"],
 }
 
 def _slugify_entity(eid: str) -> str:
@@ -125,6 +126,23 @@ class DeviceManager:
                     "availableThermostatModes": ",".join(g_modes),
                     "thermostatTemperatureUnit": unit,
                 }
+            elif domain == "sensor":
+                device_class = state.attributes.get("device_class")
+                if device_class == "temperature":
+                    traits.append("action.devices.traits.TemperatureSetting")
+                    unit = getattr(self.hass.config.units, 'temperature_unit', 'C')
+                    attrs = {
+                        "availableThermostatModes": "off",
+                        "thermostatTemperatureUnit": unit,
+                    }
+                elif device_class == "humidity":
+                    # Use HumiditySetting trait in read-only form
+                    traits.append("action.devices.traits.HumiditySetting")
+                    attrs = {}
+                else:
+                    # unsupported sensor type for Google; skip
+                    continue
+
             dev = {
                 "id": sid,
                 "type": SUPPORTED_DOMAINS[domain][0],
