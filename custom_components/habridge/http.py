@@ -276,10 +276,11 @@ async function load(){
     startDevTimer();
 }
 async function refreshDevicesValue(){
+    const previous = Object.fromEntries(_rows.map(r=>[r.id,r.selected]));
     const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
     if(!r.ok) return;
     const data=await r.json();
-    _rows=data.devices;
+    _rows=data.devices.map(d=>({ ...d, selected: d.selected ?? previous[d.id] ?? false }));
     _domainSet=new Set(_rows.map(r=>r.domain));
     populateDomainFilter();
     filter();

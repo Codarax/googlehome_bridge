@@ -44,6 +44,13 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
 
     token_mgr = TokenManager(hass, token_store, client_secret)
     await token_mgr.async_load()
+    # Migration: if user used older default (switch/light) and did not explicitly configure, extend with new defaults.
+    if expose_domains:
+        base_set = set([d.strip() for d in expose_domains])
+        # if exactly subset of new defaults and missing climate/sensor, auto-extend
+        from .const import DEFAULT_EXPOSE  # local import to avoid circular at top
+        if base_set.issubset(set(DEFAULT_EXPOSE)) and ("climate" not in base_set or "sensor" not in base_set):
+            expose_domains = list(dict.fromkeys([*base_set, *DEFAULT_EXPOSE]))
     device_mgr = DeviceManager(hass, device_store, expose_domains)
     await device_mgr.async_load()
     await device_mgr.auto_select_if_empty()

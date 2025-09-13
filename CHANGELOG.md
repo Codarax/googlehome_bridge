@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.3] - 2025-09-13
+### Fixed
+- Admin UI: toggles bleven niet visueel aan door refresh overwrite; vorige selectie wordt nu gemerged.
+- SYNC: devices zonder (nog) geladen state werden geskipt → veroorzaakt verdwijnen of pas later tonen in Google Home; nu minimale traits zodat Google ze behoudt.
+- Migratie: bestaande installaties met oude default (alleen switch/light) krijgen automatisch climate & sensor toegevoegd tenzij expliciet aangepast.
+### Notes
+- Overwegen om later een configurabele optie toe te voegen voor het includen van entities zonder state.
+
 ## [2.3.2] - 2025-09-13
 ### Added
 - Admin UI: Value kolom met actuele status (state / brightness %, climate mode + temp, sensor waarde).

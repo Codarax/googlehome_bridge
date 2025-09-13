@@ -92,65 +92,73 @@ class DeviceManager:
         devices = []
         for eid in self.selected():
             state = self.hass.states.get(eid)
-            if not state:
-                continue
-            domain = state.domain
+            # Allow inclusion even if state not yet loaded (e.g. after restart) so Google keeps device
+            domain = state.domain if state else eid.split('.')[0]
             if domain not in SUPPORTED_DOMAINS:
                 continue
             sid = self.stable_id(eid)
             traits = []
             attrs = {}
-            if domain in ("switch", "light"):
-                traits.append("action.devices.traits.OnOff")
-                if domain == "light" and state.attributes.get(ATTR_BRIGHTNESS) is not None:
-                    traits.append("action.devices.traits.Brightness")
-            elif domain == "climate":
-                traits.append("action.devices.traits.TemperatureSetting")
-                hvac_modes = state.attributes.get("hvac_modes", [])
-                # Map HA hvac modes to Google thermostat modes
-                mode_map = {
-                    "off": "off",
-                    "heat": "heat",
-                    "cool": "cool",
-                    "heat_cool": "heatcool",
-                    "auto": "heatcool",  # treat auto as heatcool for Google
-                    "fan_only": "fan-only",
-                    "dry": "dry",
-                }
-                g_modes = []
-                for m in hvac_modes:
-                    gm = mode_map.get(m)
-                    if gm and gm not in g_modes:
-                        g_modes.append(gm)
-                if not g_modes:
-                    g_modes = ["off", "heat", "cool"]
-                unit = getattr(self.hass.config.units, 'temperature_unit', 'C')
-                attrs = {
-                    "availableThermostatModes": ",".join(g_modes),
-                    "thermostatTemperatureUnit": unit,
-                }
-            elif domain == "sensor":
-                device_class = state.attributes.get("device_class")
-                if device_class == "temperature":
+            if state:  # derive traits only if we have attributes
+                if domain in ("switch", "light"):
+                    traits.append("action.devices.traits.OnOff")
+                    if domain == "light" and state.attributes.get(ATTR_BRIGHTNESS) is not None:
+                        traits.append("action.devices.traits.Brightness")
+                elif domain == "climate":
                     traits.append("action.devices.traits.TemperatureSetting")
+                    hvac_modes = state.attributes.get("hvac_modes", [])
+                    mode_map = {
+                        "off": "off",
+                        "heat": "heat",
+                        "cool": "cool",
+                        "heat_cool": "heatcool",
+                        "auto": "heatcool",
+                        "fan_only": "fan-only",
+                        "dry": "dry",
+                    }
+                    g_modes = []
+                    for m in hvac_modes:
+                        gm = mode_map.get(m)
+                        if gm and gm not in g_modes:
+                            g_modes.append(gm)
+                    if not g_modes:
+                        g_modes = ["off", "heat", "cool"]
                     unit = getattr(self.hass.config.units, 'temperature_unit', 'C')
                     attrs = {
-                        "availableThermostatModes": "off",
+                        "availableThermostatModes": ",".join(g_modes),
                         "thermostatTemperatureUnit": unit,
                     }
-                elif device_class == "humidity":
-                    # Use HumiditySetting trait in read-only form
-                    traits.append("action.devices.traits.HumiditySetting")
-                    attrs = {}
-                else:
-                    # unsupported sensor type for Google; skip
+                elif domain == "sensor":
+                    device_class = state.attributes.get("device_class") if state else None
+                    if device_class == "temperature":
+                        traits.append("action.devices.traits.TemperatureSetting")
+                        unit = getattr(self.hass.config.units, 'temperature_unit', 'C')
+                        attrs = {
+                            "availableThermostatModes": "off",
+                            "thermostatTemperatureUnit": unit,
+                        }
+                    elif device_class == "humidity":
+                        traits.append("action.devices.traits.HumiditySetting")
+                        attrs = {}
+                    else:
+                        # if state exists but unsupported sensor, skip
+                        if state:
+                            continue
+            else:
+                # minimal trait assumption for missing state to keep device visible (fallbacks)
+                if domain in ("switch", "light"):
+                    traits.append("action.devices.traits.OnOff")
+                elif domain == "climate":
+                    traits.append("action.devices.traits.TemperatureSetting")
+                elif domain == "sensor":
+                    # unknown sensor type without state -> skip
                     continue
-
+            name = state.name if state and getattr(state, 'name', None) else eid
             dev = {
                 "id": sid,
                 "type": SUPPORTED_DOMAINS[domain][0],
                 "traits": traits,
-                "name": {"name": state.name or eid},
+                "name": {"name": name},
                 "willReportState": False,
                 "otherDeviceIds": [{"deviceId": eid}],
             }
