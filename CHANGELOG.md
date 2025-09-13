@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.4.0] - 2025-09-13
+### Added
+- FanSpeed trait ondersteuning voor climate devices wanneer `fan_modes` beschikbaar zijn (SYNC attributes: `availableFanSpeeds`, `reversible=false`).
+- EXECUTE: SetFanSpeed (`action.devices.commands.SetFanSpeed`) mapping naar HA `climate.set_fan_mode`.
+- QUERY: retourneert `currentFanSpeedSetting` indien fan_mode aanwezig.
+- Uitgebreidere EXECUTE logging: elke device+command combinatie met compacte param samenvatting (on, bri, mode, temp, fan).
+- Admin Settings: Device List Filters (per domein zichtbaar ja/nee, lokaal opgeslagen in browser) + reset knop.
+
+### Changed
+- EXECUTE log detail toont nu aantal groepen + totaal commands + compacte lijst (afgekapt tot ~600 chars).
+
+### Notes
+- Domain visibility filters beïnvloeden alleen weergave in admin UI, niet selectie/persistentie of SYNC exposure.
+- FanSpeed verschijnt alleen bij climate entities met fan_modes attributen.
+
 ## [2.3.6] - 2025-09-13
 ## [2.3.7] - 2025-09-13
 ### Changed

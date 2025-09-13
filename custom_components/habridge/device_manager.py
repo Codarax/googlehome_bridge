@@ -123,6 +123,9 @@ class DeviceManager:
                 elif domain == "climate":
                     traits.append("action.devices.traits.TemperatureSetting")
                     hvac_modes = state.attributes.get("hvac_modes", [])
+                    fan_modes = state.attributes.get("fan_modes")
+                    if fan_modes:
+                        traits.append("action.devices.traits.FanSpeed")
                     mode_map = {
                         "off": "off",
                         "heat": "heat",
@@ -144,6 +147,17 @@ class DeviceManager:
                         "availableThermostatModes": ",".join(g_modes),
                         "thermostatTemperatureUnit": unit,
                     }
+                    if fan_modes:
+                        speeds = []
+                        for fm in fan_modes:
+                            sname = f"speed_{fm.lower()}"
+                            speeds.append({
+                                "speed_name": sname,
+                                "speed_values": [{"speed_synonym": [fm], "lang": "en"}]
+                            })
+                        if speeds:
+                            attrs["availableFanSpeeds"] = {"speeds": speeds, "ordered": True}
+                            attrs["reversible"] = False
                 elif domain == "sensor":
                     device_class = state.attributes.get("device_class") if state else None
                     if device_class == "temperature":
@@ -237,6 +251,13 @@ class DeviceManager:
                             data["target_temp_high"] = high
                         await self.hass.services.async_call("climate", "set_temperature", data, blocking=False)
                         results.append({"ids": [sid], "status": "SUCCESS"})
+                    elif ctype == "action.devices.commands.SetFanSpeed" and domain == "climate":
+                        fan_speed = params.get("fanSpeed")
+                        if isinstance(fan_speed, str):
+                            # strip optional prefix speed_
+                            fm = fan_speed[6:] if fan_speed.lower().startswith("speed_") else fan_speed
+                            await self.hass.services.async_call("climate", "set_fan_mode", {"entity_id": eid, "fan_mode": fm}, blocking=False)
+                            results.append({"ids": [sid], "status": "SUCCESS"})
         return results
 
     def get_selection_map(self) -> Dict[str, bool]:

@@ -116,6 +116,7 @@ class SmartHomeView(HomeAssistantView):
                     elif domain == "climate":
                         cur = st.attributes.get("current_temperature")
                         hvac = st.state
+                        fan_mode = st.attributes.get("fan_mode")
                         mode_map = {
                             "off": "off",
                             "heat": "heat",
@@ -137,6 +138,8 @@ class SmartHomeView(HomeAssistantView):
                         if low is not None and high is not None:
                             resp["thermostatTemperatureSetpointLow"] = low
                             resp["thermostatTemperatureSetpointHigh"] = high
+                        if fan_mode:
+                            resp["currentFanSpeedSetting"] = f"speed_{fan_mode.lower()}"
                         devices[sid] = resp
                     elif domain == "sensor":
                         dclass = st.attributes.get("device_class")
@@ -165,8 +168,34 @@ class SmartHomeView(HomeAssistantView):
             if intent == "action.devices.EXECUTE":
                 commands = body.get("inputs", [{}])[0].get("payload", {}).get("commands", [])
                 results = await self.device_mgr.execute(commands)
-                logger.info("habridge: EXECUTE processed %d command groups", len(commands))
-                self._push_log("EXECUTE", f"groups={len(commands)} results={len(results)}", request_id)
+                # Build detailed log: list every execution with entity + command
+                detail_parts = []
+                try:
+                    for group in commands:
+                        ds = group.get("devices", [])
+                        exs = group.get("execution", [])
+                        for d in ds:
+                            did = d.get("id") or d.get("deviceId")
+                            for ex in exs:
+                                cname = ex.get("command", "?").split('.')[-1]
+                                params = ex.get("params", {})
+                                mini = []
+                                if "on" in params:
+                                    mini.append(f"on={params['on']}")
+                                if "brightness" in params:
+                                    mini.append(f"bri={params['brightness']}")
+                                if "thermostatMode" in params:
+                                    mini.append(f"mode={params['thermostatMode']}")
+                                if "thermostatTemperatureSetpoint" in params:
+                                    mini.append(f"temp={params['thermostatTemperatureSetpoint']}")
+                                if "fanSpeed" in params:
+                                    mini.append(f"fan={params['fanSpeed']}")
+                                detail_parts.append(f"{did}:{cname}({','.join(mini)})")
+                except Exception:  # noqa: BLE001
+                    pass
+                short_detail = ';'.join(detail_parts)[:600]
+                logger.info("habridge: EXECUTE processed %d groups %s", len(commands), short_detail)
+                self._push_log("EXECUTE", f"groups={len(commands)} cmds={len(detail_parts)} {short_detail}", request_id)
                 return web.json_response({"requestId": request_id, "payload": {"commands": [{"ids": r["ids"], "status": r["status"]} for r in results]}})
             logger.warning("habridge: unknown intent '%s'", intent)
             self._push_log("UNKNOWN", intent or '', request_id)
@@ -251,13 +280,19 @@ button:hover{background:#f0f3f5;}
         </div>
     <table id='logtbl'><thead><tr><th style='width:40px;'>#</th><th style='width:95px;'>Date</th><th style='width:80px;'>Time</th><th style='width:90px;'>ReqID</th><th style='width:90px;'>Intent</th><th>Detail</th></tr></thead><tbody></tbody></table>
     </div>
-    <div id="view-settings" style="display:none;max-width:640px;">
+    <div id="view-settings" style="display:none;max-width:760px;">
         <h3>Settings</h3>
-        <div style='background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:14px;'>
+        <div style='background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:14px;margin-bottom:16px;'>
             <p class='muted'>Client ID & Secret pas je aan via Integratie → Opties in Home Assistant.</p>
-            <h4>Debug / Tools</h4>
+            <h4 style='margin-top:0;'>Debug / Tools</h4>
             <button onclick='showSyncPreview()'>Force SYNC Preview</button>
             <pre id='syncPreview' style='margin-top:12px;display:none;max-height:300px;overflow:auto;background:#243447;color:#d6e4f2;padding:10px;font-size:12px;border-radius:6px;'></pre>
+        </div>
+        <div style='background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:14px;'>
+            <h4 style='margin-top:0;'>Device List Filters</h4>
+            <p class='muted'>Beheer welke domeinen zichtbaar zijn in het Devices overzicht. Wordt lokaal opgeslagen (browser).</p>
+            <div id='domainSettings'></div>
+            <button style='margin-top:10px;' onclick='resetDomainVisibility()'>Reset naar standaard</button>
         </div>
     </div>
 </div>
@@ -269,6 +304,8 @@ let _logs=[];let _logTimer=null;let _devTimer=null;
 let _pendingSelections={}; // id -> desired state
 let _pendingLocks={}; // id -> lock until timestamp (ms)
 let _backgroundUpdates=true; // default aan; kan via settings uit
+let _domainVisibility = JSON.parse(localStorage.getItem('habridge_domain_visibility')||'{}');
+function isDomainVisible(d){ if(Object.keys(_domainVisibility).length===0) return true; return _domainVisibility[d]!==false; }
 document.getElementById('q').addEventListener('input',filter);
 document.getElementById('domainFilter').addEventListener('change',filter);
 document.getElementById('onlySel').addEventListener('change',filter);
@@ -312,6 +349,7 @@ function filter(){
     _filtered=_rows.filter(r=>{
         if(onlySel && !r.selected) return false;
         if(domainF && r.domain!==domainF) return false;
+        if(!isDomainVisible(r.domain)) return false;
         if(!q) return true;
         const target=[r.stable_id||'', r.id||'', r.name||'', r.domain||'', r.value||''].join(' ').toLowerCase();
         return target.includes(q);
@@ -401,6 +439,25 @@ if(settingsDiv){
     });
     opt.querySelector('#bgupd').addEventListener('change',e=>{_backgroundUpdates=e.target.checked; if(!_backgroundUpdates){ stopDevTimer(); stopLogTimer(); } else { if(document.getElementById('view-devices').style.display!=='none') startDevTimer(); if(document.getElementById('view-logs').style.display!=='none') startLogTimer(); }});
 }
+function buildDomainSettings(){
+    const host=document.getElementById('domainSettings'); if(!host) return; const all=Array.from(_domainSet).sort();
+    if(all.length===0){ host.innerHTML='<p class="muted">Nog geen devices geladen.</p>'; return; }
+    host.innerHTML=all.map(d=>{
+        const chk= isDomainVisible(d)?'checked':'';
+        return `<label style='display:flex;align-items:center;gap:6px;margin:4px 0;font-size:13px;'><input type='checkbox' data-dom='${d}' ${chk}/> ${d}</label>`;
+    }).join('');
+    host.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.addEventListener('change',e=>{
+            const dom=e.target.getAttribute('data-dom');
+            _domainVisibility[dom]=e.target.checked; // false when unchecked
+            if(e.target.checked) delete _domainVisibility[dom];
+            localStorage.setItem('habridge_domain_visibility', JSON.stringify(_domainVisibility));
+            filter();
+    }));
+}
+function resetDomainVisibility(){ _domainVisibility={}; localStorage.removeItem('habridge_domain_visibility'); filter(); buildDomainSettings(); }
+// Rebuild domain settings whenever domains change
+const origPopulateDomainFilter = populateDomainFilter;
+populateDomainFilter = function(){ origPopulateDomainFilter(); buildDomainSettings(); };
 load();
 </script></body></html>"""
 
