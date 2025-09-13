@@ -380,7 +380,12 @@ if(settingsDiv){
     opt.style.marginTop='16px';
     opt.innerHTML=`<label style='display:flex;align-items:center;gap:8px;font-size:14px;'><input type='checkbox' id='bgupd' ${_backgroundUpdates?'checked':''}/> Background auto updates</label><p class='muted'>Schakel uit als je absolute rust wilt tijdens scrollen; handmatig verversen blijft mogelijk.</p>`;
     settingsDiv.appendChild(opt);
-    document.addEventListener('visibilitychange',()=>{ if(document.hidden){ /* pauze */ } else { if(_backgroundUpdates){ refreshDevicesValue(); refreshLogs(); } }); });
+    document.addEventListener('visibilitychange',()=>{
+        if(!document.hidden && _backgroundUpdates){
+            refreshDevicesValue();
+            refreshLogs();
+        }
+    });
     opt.querySelector('#bgupd').addEventListener('change',e=>{_backgroundUpdates=e.target.checked; if(!_backgroundUpdates){ stopDevTimer(); stopLogTimer(); } else { if(document.getElementById('view-devices').style.display!=='none') startDevTimer(); if(document.getElementById('view-logs').style.display!=='none') startLogTimer(); }});
 }
 load();
