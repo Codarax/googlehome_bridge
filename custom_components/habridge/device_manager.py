@@ -54,7 +54,23 @@ class DeviceManager:
             await self._idmap_store.async_save({"entities": self._stable_to_entity, "reverse": self._entity_to_stable})
 
     def list_entities(self) -> List[str]:
-        return [e.entity_id for e in self.hass.states.async_all() if e.domain in self.expose_domains]
+        # Prefer runtime states; fallback to entity registry for domains that may not yet have a state
+        seen = set()
+        entities = []
+        for e in self.hass.states.async_all():
+            if e.domain in self.expose_domains:
+                entities.append(e.entity_id)
+                seen.add(e.entity_id)
+        try:
+            # entity_registry gives us entities that might not have states yet (e.g. some climate integrations on startup)
+            from homeassistant.helpers import entity_registry as er  # type: ignore
+            reg = er.async_get(self.hass)
+            for ent in reg.entities.values():
+                if ent.domain in self.expose_domains and ent.entity_id not in seen:
+                    entities.append(ent.entity_id)
+        except Exception:  # noqa: BLE001
+            pass
+        return entities
 
     def selected(self) -> List[str]:
         return [eid for eid, v in self._selections.items() if v]

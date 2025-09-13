@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.3.4] - 2025-09-13
+### Added
+- Settings optie: Background auto updates toggle (devices + logs) met respect voor verborgen tabbladen (document.hidden).
+- Logs UI: kolommen (#, datum, tijd, requestId, intent, detail) + requestId logging.
+### Changed
+- Devices refresh overschrijft selectie niet; optimistisch pending mechanisme.
+### Fixed
+- Toggle flikkeren door race met refresh opgelost via `_pendingSelections` merge.
+- Ontbrekende climate entity (zoals `climate.air_conditioner_4ed9e7_air_conditioner`) nu zichtbaar door entity_registry fallback en inclusion zonder state.
+- SYNC logging bevat nu requestId voor betere traceability.
+### Notes
+- Max 50 log items (rolling); kan later configurabel worden.
+- Background updates pauzeren automatisch wanneer tab niet actief is.
+
 ## [2.3.3] - 2025-09-13
 ### Fixed
 - Admin UI: toggles bleven niet visueel aan door refresh overwrite; vorige selectie wordt nu gemerged.

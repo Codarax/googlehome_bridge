@@ -72,8 +72,13 @@ class SmartHomeView(HomeAssistantView):
         self.client_secret = client_secret
         self._log_buf: list[dict] = []
 
-    def _push_log(self, intent: str, detail: str):
-        self._log_buf.append({"ts": self.hass.loop.time()*1000, "intent": intent, "detail": detail[:500]})
+    def _push_log(self, intent: str, detail: str, request_id: str | None = None):
+        self._log_buf.append({
+            "ts": self.hass.loop.time()*1000,
+            "intent": intent,
+            "detail": detail[:800],
+            "rid": request_id or "-"
+        })
         if len(self._log_buf) > 50:
             self._log_buf.pop(0)
 
@@ -91,7 +96,7 @@ class SmartHomeView(HomeAssistantView):
             if intent == "action.devices.SYNC":
                 devices = self.device_mgr.build_sync()
                 logger.info("habridge: SYNC returns %d devices", len(devices))
-                self._push_log("SYNC", f"devices={len(devices)}")
+                self._push_log("SYNC", f"devices={len(devices)}", request_id)
                 return web.json_response({"requestId": request_id, "payload": {"agentUserId": "user", "devices": devices}})
             if intent == "action.devices.QUERY":
                 devices = {}
@@ -154,20 +159,20 @@ class SmartHomeView(HomeAssistantView):
                                 "humidityAmbientPercent": val,
                             }
                 logger.debug("habridge: QUERY devices=%d", len(devices))
-                self._push_log("QUERY", f"devices={len(devices)}")
+                self._push_log("QUERY", f"devices={len(devices)}", request_id)
                 return web.json_response({"requestId": request_id, "payload": {"devices": devices}})
             if intent == "action.devices.EXECUTE":
                 commands = body.get("inputs", [{}])[0].get("payload", {}).get("commands", [])
                 results = await self.device_mgr.execute(commands)
                 logger.info("habridge: EXECUTE processed %d command groups", len(commands))
-                self._push_log("EXECUTE", f"groups={len(commands)} results={len(results)}")
+                self._push_log("EXECUTE", f"groups={len(commands)} results={len(results)}", request_id)
                 return web.json_response({"requestId": request_id, "payload": {"commands": [{"ids": r["ids"], "status": r["status"]} for r in results]}})
             logger.warning("habridge: unknown intent '%s'", intent)
-            self._push_log("UNKNOWN", intent or '')
+            self._push_log("UNKNOWN", intent or '', request_id)
             return web.json_response({"requestId": request_id, "payload": {}}, status=200)
         except Exception as exc:  # noqa: BLE001
             logger.exception("habridge: exception processing intent %s", intent)
-            self._push_log("ERROR", str(exc))
+            self._push_log("ERROR", str(exc), request_id)
             return web.json_response({"requestId": request_id, "payload": {"errorCode": "internalError"}}, status=500)
 
 class HealthView(HomeAssistantView):
@@ -243,7 +248,7 @@ button:hover{background:#f0f3f5;}
             <button onclick='refreshLogs()'>Refresh Logs</button>
             <button onclick='clearLogs()'>Clear</button>
         </div>
-        <table id='logtbl'><thead><tr><th style='width:160px;'>Time</th><th>Intent</th><th>Info</th></tr></thead><tbody></tbody></table>
+    <table id='logtbl'><thead><tr><th style='width:40px;'>#</th><th style='width:95px;'>Date</th><th style='width:80px;'>Time</th><th style='width:90px;'>ReqID</th><th style='width:90px;'>Intent</th><th>Detail</th></tr></thead><tbody></tbody></table>
     </div>
     <div id="view-settings" style="display:none;max-width:640px;">
         <h3>Settings</h3>
@@ -260,6 +265,8 @@ const urlParams=new URLSearchParams(window.location.search);const ADMIN_TOKEN=ur
 let _rows=[];let _filtered=[];let _domainSet=new Set();
 const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟'};
 let _logs=[];let _logTimer=null;let _devTimer=null;
+let _pendingSelections={};
+let _backgroundUpdates=true; // default aan; kan via settings uit
 document.getElementById('q').addEventListener('input',filter);
 document.getElementById('domainFilter').addEventListener('change',filter);
 document.getElementById('onlySel').addEventListener('change',filter);
@@ -268,19 +275,19 @@ function showView(v){
     document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
     document.querySelectorAll('nav a')[v==='devices'?0:(v==='logs'?1:2)].classList.add('active');
     if(v==='logs'){refreshLogs(); startLogTimer(); stopDevTimer();}
-    else if(v==='devices'){refreshDevicesValue(); startDevTimer(); stopLogTimer();}
+    else if(v==='devices'){refreshDevicesValue(); if(_backgroundUpdates) startDevTimer(); stopLogTimer();}
     else {stopLogTimer(); stopDevTimer();}
 }
 async function load(){
     await refreshDevicesValue();
-    startDevTimer();
+    if(_backgroundUpdates) startDevTimer();
 }
 async function refreshDevicesValue(){
     const previous = Object.fromEntries(_rows.map(r=>[r.id,r.selected]));
     const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
     if(!r.ok) return;
     const data=await r.json();
-    _rows=data.devices.map(d=>({ ...d, selected: d.selected ?? previous[d.id] ?? false }));
+    _rows=data.devices.map(d=>({ ...d, selected: _pendingSelections[d.id] ?? d.selected ?? previous[d.id] ?? false }));
     _domainSet=new Set(_rows.map(r=>r.domain));
     populateDomainFilter();
     filter();
@@ -313,15 +320,27 @@ function render(){
         _filtered.forEach((r,idx)=>{
             const tr=document.createElement('tr');
             const icon=icons[r.domain]||'🔘';
-            tr.innerHTML=`<td>${idx+1}</td><td title="${r.id}">${r.stable_id||r.id}</td><td><span class='domain-icon'>${icon}</span>${r.name||''}</td><td>${r.domain}</td><td class='value-col'>${r.value||''}</td><td style='text-align:center;'><label class='tgl'><input type='checkbox' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td>`;
+            tr.innerHTML=`<td>${idx+1}</td><td title="${r.id}">${r.stable_id||r.id}</td><td><span class='domain-icon'>${icon}</span>${r.name||''}</td><td>${r.domain}</td><td class='value-col'>${r.value||''}</td><td style='text-align:center;'><label class='tgl'><input type='checkbox' data-id='${r.id}' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td>`;
             tb.appendChild(tr);
         });
     }
     document.getElementById('counts').textContent=`${_filtered.length} / ${_rows.length}`;
 }
 async function toggleDevice(id,val){
-    await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:{[id]:val}})});
-    const row=_rows.find(r=>r.id===id); if(row) row.selected=val; filter();
+    // Optimistisch
+    _pendingSelections[id]=val;
+    const row=_rows.find(r=>r.id===id); if(row) row.selected=val;
+    // UI direct updaten zonder volledige filter run om flicker te vermijden
+    const el=document.querySelector(`input[type=checkbox][data-id='${id}']`);
+    if(el) el.checked=val;
+    try {
+        const resp=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:{[id]:val}})});
+        if(!resp.ok) throw new Error('HTTP '+resp.status);
+        delete _pendingSelections[id];
+    } catch(e){
+        // revert bij fout
+        const prev=!val; _pendingSelections[id]=prev; if(row) row.selected=prev; if(el) el.checked=prev;
+    }
 }
 async function bulk(val){
     const ups={};_filtered.forEach(r=>ups[r.id]=val);await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:ups})});
@@ -333,12 +352,19 @@ async function refreshLogs(){
 }
 function renderLogs(){
     const tb=document.querySelector('#logtbl tbody'); if(!tb) return; tb.innerHTML='';
-    _logs.forEach(l=>{const tr=document.createElement('tr'); tr.innerHTML=`<td>${new Date(l.ts).toLocaleTimeString()}</td><td>${l.intent}</td><td><code style='font-size:11px;'>${(l.detail||'').replace(/[<>]/g,'')}</code></td>`; tb.appendChild(tr);});
+    _logs.forEach((l,i)=>{
+        const dt=new Date(l.ts);
+        const d=dt.toLocaleDateString();
+        const t=dt.toLocaleTimeString();
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td>${i+1}</td><td>${d}</td><td>${t}</td><td>${l.rid||'-'}</td><td>${l.intent}</td><td><code style='font-size:11px;'>${(l.detail||'').replace(/[<>]/g,'')}</code></td>`;
+        tb.appendChild(tr);
+    });
 }
 async function clearLogs(){ await fetch('/habridge/logs?token='+encodeURIComponent(ADMIN_TOKEN),{method:'DELETE'}); _logs=[]; renderLogs(); }
 function startLogTimer(){ if(_logTimer) return; _logTimer=setInterval(refreshLogs,5000); }
 function stopLogTimer(){ if(_logTimer){clearInterval(_logTimer); _logTimer=null;} }
-function startDevTimer(){ if(_devTimer) return; _devTimer=setInterval(refreshDevicesValue,10000); }
+function startDevTimer(){ if(_devTimer) return; _devTimer=setInterval(()=>{ if(document.hidden) return; refreshDevicesValue(); },10000); }
 function stopDevTimer(){ if(_devTimer){clearInterval(_devTimer); _devTimer=null;} }
 async function showSyncPreview(){
     const pre=document.getElementById('syncPreview');
@@ -346,6 +372,16 @@ async function showSyncPreview(){
          const r=await fetch('/habridge/sync_preview?token='+encodeURIComponent(ADMIN_TOKEN));
          if(r.ok){ const data=await r.json(); pre.textContent=JSON.stringify(data,null,2); pre.style.display='block'; }
     } else { pre.style.display='none'; }
+}
+// Settings pane uitbreiden met toggle voor background updates
+const settingsDiv=document.getElementById('view-settings');
+if(settingsDiv){
+    const opt=document.createElement('div');
+    opt.style.marginTop='16px';
+    opt.innerHTML=`<label style='display:flex;align-items:center;gap:8px;font-size:14px;'><input type='checkbox' id='bgupd' ${_backgroundUpdates?'checked':''}/> Background auto updates</label><p class='muted'>Schakel uit als je absolute rust wilt tijdens scrollen; handmatig verversen blijft mogelijk.</p>`;
+    settingsDiv.appendChild(opt);
+    document.addEventListener('visibilitychange',()=>{ if(document.hidden){ /* pauze */ } else { if(_backgroundUpdates){ refreshDevicesValue(); refreshLogs(); } }); });
+    opt.querySelector('#bgupd').addEventListener('change',e=>{_backgroundUpdates=e.target.checked; if(!_backgroundUpdates){ stopDevTimer(); stopLogTimer(); } else { if(document.getElementById('view-devices').style.display!=='none') startDevTimer(); if(document.getElementById('view-logs').style.display!=='none') startLogTimer(); }});
 }
 load();
 </script></body></html>"""
