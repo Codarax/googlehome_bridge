@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.3.2] - 2025-09-13
+### Added
+- Admin UI: Value kolom met actuele status (state / brightness %, climate mode + temp, sensor waarde).
+- Admin UI: Toggle switches i.p.v. standaard checkboxes voor selectie.
+- Auto-refresh: Devices (10s) & Logs (5s) alleen wanneer betreffende tab actief is.
+### Changed
+- Uitgebreidere search: zoekt nu in stable_id, entity_id, naam, domein en value.
+- Tabel styling: sticky toolbar, afwisselende rij achtergrond, compactere layout.
+- Default expose domains uitgebreid (switch, light, climate, sensor) voor nieuwe installaties.
+### Fixed
+- Logs view correcte registratie (geen lege lijst meer bij nieuwe sessies).
+### Notes
+- Stable IDs + QUERY key alignment uit eerdere versie blijven intact.
+- Refresh interval is bewust licht gehouden om belasting te minimaliseren; pas aan indien nodig in toekomstige versie.
+
 ## [2.3.1] - 2025-09-13
 ### Fixed
 - Import error: verwijderde `ATTR_BRIGHTNESS` import uit `homeassistant.const` vervangen door lokale fallback string om compatibiliteit met nieuwere HA versies te behouden.

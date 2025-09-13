@@ -188,9 +188,10 @@ header h1{font-size:18px;margin:0;font-weight:600;}
 nav a{color:#cfd6dd;text-decoration:none;margin-right:16px;font-size:14px;}
 nav a.active{color:#fff;font-weight:600;}
 .wrap{padding:16px 22px;}
-table{border-collapse:collapse;width:100%;background:#fff;border:1px solid #d9dee3;border-radius:6px;overflow:hidden;margin-bottom:18px;}
+table{border-collapse:separate;border-spacing:0;width:100%;background:#fff;border:1px solid #d9dee3;border-radius:8px;overflow:hidden;margin-bottom:18px;}
 th{background:#eef1f4;text-align:left;padding:6px 10px;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:#4a5560;}
 td{padding:6px 10px;font-size:14px;border-top:1px solid #edf0f2;}
+tbody tr:nth-child(odd){background:#fafbfc;}
 tr:hover{background:#f2f6fb;}
 input[type=search]{width:260px;padding:6px 10px;border:1px solid #c7ccd1;border-radius:4px;}
 button,select{padding:6px 12px;border:1px solid #c7ccd1;border-radius:4px;background:#fff;cursor:pointer;font-size:13px;}
@@ -202,6 +203,17 @@ button:hover{background:#f0f3f5;}
 .muted{color:#6a737d;font-size:12px;margin-left:4px;}
 .toggle-wrap{display:flex;align-items:center;gap:6px;font-size:13px;}
 .filter-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;}
+.sticky{position:sticky;top:0;z-index:9;background:#f6f7f9;padding-top:6px;padding-bottom:4px;}
+/* Toggle */
+.tgl{position:relative;display:inline-block;width:38px;height:20px;}
+.tgl input{opacity:0;width:0;height:0;}
+.tgl span{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ccd3da;transition:.25s;border-radius:20px;}
+.tgl span:before{position:absolute;content:"";height:16px;width:16px;left:2px;top:2px;background:#fff;border-radius:50%;transition:.25s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+.tgl input:checked+span{background:#3b82f6;}
+.tgl input:checked+span:before{transform:translateX(18px);}
+.value-col{font-family:SFMono-Regular,Consolas,monospace;font-size:12px;color:#334058;}
+.empty{padding:22px;text-align:center;color:#55606d;font-size:14px;}
+.counts-extended{font-size:12px;color:#cfd6dd;margin-left:auto;}
 </style></head>
 <body>
 <header>
@@ -215,7 +227,7 @@ button:hover{background:#f0f3f5;}
 </header>
 <div class="wrap">
     <div id="view-devices">
-        <div class="toolbar">
+    <div class="toolbar sticky">
             <div class="filter-row">
                 <input id='q' placeholder='Search...' type='search' />
                 <select id='domainFilter'><option value=''>All domains</option></select>
@@ -224,7 +236,7 @@ button:hover{background:#f0f3f5;}
                 <button onclick='bulk(false)'>Clear All</button>
             </div>
         </div>
-        <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Domain</th><th style='width:80px;'>Selected</th></tr></thead><tbody></tbody></table>
+    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th></tr></thead><tbody></tbody></table>
     </div>
     <div id="view-logs" style="display:none;">
         <div class='toolbar'>
@@ -247,15 +259,27 @@ button:hover{background:#f0f3f5;}
 const urlParams=new URLSearchParams(window.location.search);const ADMIN_TOKEN=urlParams.get('token');
 let _rows=[];let _filtered=[];let _domainSet=new Set();
 const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟'};
-let _logs=[];
+let _logs=[];let _logTimer=null;let _devTimer=null;
 document.getElementById('q').addEventListener('input',filter);
 document.getElementById('domainFilter').addEventListener('change',filter);
 document.getElementById('onlySel').addEventListener('change',filter);
-function showView(v){['devices','logs','settings'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));document.querySelectorAll('nav a')[v==='devices'?0:(v==='logs'?1:2)].classList.add('active'); if(v==='logs'){refreshLogs();}}
+function showView(v){
+    ['devices','logs','settings'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');
+    document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
+    document.querySelectorAll('nav a')[v==='devices'?0:(v==='logs'?1:2)].classList.add('active');
+    if(v==='logs'){refreshLogs(); startLogTimer(); stopDevTimer();}
+    else if(v==='devices'){refreshDevicesValue(); startDevTimer(); stopLogTimer();}
+    else {stopLogTimer(); stopDevTimer();}
+}
 async function load(){
+    await refreshDevicesValue();
+    startDevTimer();
+}
+async function refreshDevicesValue(){
     const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
+    if(!r.ok) return;
     const data=await r.json();
-    _rows=data.devices.map((d,i)=>({...d, stable:d.id}));
+    _rows=data.devices;
     _domainSet=new Set(_rows.map(r=>r.domain));
     populateDomainFilter();
     filter();
@@ -270,21 +294,28 @@ function filter(){
     const onlySel=document.getElementById('onlySel').checked;
     const domainF=document.getElementById('domainFilter').value;
     _filtered=_rows.filter(r=>{
-         if(onlySel && !r.selected) return false;
-         if(domainF && r.domain!==domainF) return false;
-         if(!q) return true;
-         return (r.id.toLowerCase().includes(q) || (r.name||'').toLowerCase().includes(q) || r.domain.toLowerCase().includes(q));
+        if(onlySel && !r.selected) return false;
+        if(domainF && r.domain!==domainF) return false;
+        if(!q) return true;
+        const target=[r.stable_id||'', r.id||'', r.name||'', r.domain||'', r.value||''].join(' ').toLowerCase();
+        return target.includes(q);
     });
     render();
 }
 function render(){
     const tb=document.querySelector('#tbl tbody');tb.innerHTML='';
-    _filtered.forEach((r,idx)=>{
+    if(!_filtered.length){
         const tr=document.createElement('tr');
-        const icon=icons[r.domain]||'🔘';
-        tr.innerHTML=`<td>${idx+1}</td><td>${r.id}</td><td><span class='domain-icon'>${icon}</span>${r.name||''}</td><td>${r.domain}</td><td style='text-align:center;'><input type='checkbox' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'/></td>`;
-        tb.appendChild(tr);
-    });
+        const td=document.createElement('td');td.colSpan=6;td.className='empty';td.textContent='No devices match filters';
+        tr.appendChild(td);tb.appendChild(tr);
+    } else {
+        _filtered.forEach((r,idx)=>{
+            const tr=document.createElement('tr');
+            const icon=icons[r.domain]||'🔘';
+            tr.innerHTML=`<td>${idx+1}</td><td title="${r.id}">${r.stable_id||r.id}</td><td><span class='domain-icon'>${icon}</span>${r.name||''}</td><td>${r.domain}</td><td class='value-col'>${r.value||''}</td><td style='text-align:center;'><label class='tgl'><input type='checkbox' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td>`;
+            tb.appendChild(tr);
+        });
+    }
     document.getElementById('counts').textContent=`${_filtered.length} / ${_rows.length}`;
 }
 async function toggleDevice(id,val){
@@ -304,6 +335,10 @@ function renderLogs(){
     _logs.forEach(l=>{const tr=document.createElement('tr'); tr.innerHTML=`<td>${new Date(l.ts).toLocaleTimeString()}</td><td>${l.intent}</td><td><code style='font-size:11px;'>${(l.detail||'').replace(/[<>]/g,'')}</code></td>`; tb.appendChild(tr);});
 }
 async function clearLogs(){ await fetch('/habridge/logs?token='+encodeURIComponent(ADMIN_TOKEN),{method:'DELETE'}); _logs=[]; renderLogs(); }
+function startLogTimer(){ if(_logTimer) return; _logTimer=setInterval(refreshLogs,5000); }
+function stopLogTimer(){ if(_logTimer){clearInterval(_logTimer); _logTimer=null;} }
+function startDevTimer(){ if(_devTimer) return; _devTimer=setInterval(refreshDevicesValue,10000); }
+function stopDevTimer(){ if(_devTimer){clearInterval(_devTimer); _devTimer=null;} }
 async function showSyncPreview(){
     const pre=document.getElementById('syncPreview');
     if(pre.style.display==='none'){
@@ -345,10 +380,34 @@ class DevicesView(HomeAssistantView):
         out = []
         for eid in self.device_mgr.list_entities():
             st = self.hass.states.get(eid)
+            domain = st.domain if st else eid.split('.')[0]
+            stable_id = self.device_mgr.stable_id(eid)
+            value = None
+            if st:
+                if domain in ("switch", "light"):
+                    if domain == "light" and st.attributes.get("brightness") is not None:
+                        try:
+                            pct = int(round(st.attributes.get("brightness") * 100 / 255))
+                            value = f"{pct}%"
+                        except Exception:  # noqa: BLE001
+                            value = st.state
+                    else:
+                        value = st.state
+                elif domain == "climate":
+                    cur = st.attributes.get("current_temperature")
+                    mode = st.state
+                    if cur is not None:
+                        value = f"{cur}° ({mode})"
+                    else:
+                        value = mode
+                elif domain == "sensor":
+                    value = st.state
             out.append({
                 "id": eid,
+                "stable_id": stable_id,
                 "name": st.name if st else eid,
-                "domain": st.domain if st else eid.split('.')[0],
+                "domain": domain,
+                "value": value,
                 "selected": eid in self.device_mgr.selected()
             })
         return web.json_response({"devices": out})

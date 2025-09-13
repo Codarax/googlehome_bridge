@@ -16,7 +16,16 @@ from .const import (
 )
 from .token_manager import TokenManager
 from .device_manager import DeviceManager
-from .http import OAuthView, TokenView, SmartHomeView, HealthView, AdminPageView, DevicesView
+from .http import (
+    OAuthView,
+    TokenView,
+    SmartHomeView,
+    HealthView,
+    AdminPageView,
+    DevicesView,
+    LogsView,
+    SyncPreviewView,
+)
 import secrets
 import logging
 
@@ -46,15 +55,20 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
         "client_secret": client_secret,
     }
 
-    hass.http.register_view(OAuthView(hass, token_mgr))
-    hass.http.register_view(TokenView(hass, token_mgr))
-    hass.http.register_view(SmartHomeView(hass, token_mgr, device_mgr, client_secret))
+    oauth_view = OAuthView(hass, token_mgr)
+    token_view = TokenView(hass, token_mgr)
+    smart_view = SmartHomeView(hass, token_mgr, device_mgr, client_secret)
+    hass.http.register_view(oauth_view)
+    hass.http.register_view(token_view)
+    hass.http.register_view(smart_view)
     admin_token = secrets.token_urlsafe(16)
     hass.data[DOMAIN]["admin_token"] = admin_token
 
     hass.http.register_view(HealthView())
     hass.http.register_view(AdminPageView(admin_token))
     hass.http.register_view(DevicesView(hass, device_mgr, admin_token))
+    hass.http.register_view(LogsView(smart_view, admin_token))
+    hass.http.register_view(SyncPreviewView(device_mgr, admin_token))
 
     async def _register_panel(*_):
         if hass.data.get(PANEL_ID):
