@@ -140,6 +140,7 @@ class SmartHomeView(HomeAssistantView):
                             resp["thermostatTemperatureSetpointHigh"] = high
                         if fan_mode:
                             resp["currentFanSpeedSetting"] = f"speed_{fan_mode.lower()}"
+                        resp["on"] = g_mode != "off"
                         devices[sid] = resp
                     elif domain == "sensor":
                         dclass = st.attributes.get("device_class")

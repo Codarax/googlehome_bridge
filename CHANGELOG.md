@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.4.1] - 2025-09-13
+### Fixed / Changed
+- Climate: apparaat type dynamisch AC_UNIT wanneer fan_modes aanwezig → Google herkent FanSpeed beter.
+- Climate: OnOff trait toegevoegd zodat "zet airco uit / aan" werkt (EXECUTE omzet naar hvac_mode off of herstelt/kiest geschikte modus).
+- EXECUTE: SetFanSpeed & temperatuur setpoint handling uitgebreid; QUERY geeft nu `on` flag + `currentFanSpeedSetting`.
+- FanSpeed mapping: accepteert zowel `speed_medium` als `medium` vanuit Google.
+- Logging: skip log toegevoegd wanneer climate state ontbreekt tijdens EXECUTE.
+### Notes
+- Als bestaande gekoppelde apparaten nog THERMOSTAT tonen: Force SYNC (Settings → Force SYNC Preview, daarna een Google "sync my devices").
+
 ## [2.4.0] - 2025-09-13
 ### Added
 - FanSpeed trait ondersteuning voor climate devices wanneer `fan_modes` beschikbaar zijn (SYNC attributes: `availableFanSpeeds`, `reversible=false`).

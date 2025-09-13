@@ -12,7 +12,8 @@ ATTR_BRIGHTNESS = "brightness"
 SUPPORTED_DOMAINS = {
     "switch": ["action.devices.types.SWITCH"],
     "light": ["action.devices.types.LIGHT"],
-    "climate": ["action.devices.types.THERMOSTAT"],
+    # Voor climate kiezen we standaard THERMOSTAT; als fan_modes aanwezig zijn gebruiken we AC_UNIT dynamisch.
+    "climate": ["action.devices.types.THERMOSTAT", "action.devices.types.AC_UNIT"],
     "sensor": ["action.devices.types.SENSOR"],
 }
 
@@ -121,7 +122,9 @@ class DeviceManager:
                     if domain == "light" and state.attributes.get(ATTR_BRIGHTNESS) is not None:
                         traits.append("action.devices.traits.Brightness")
                 elif domain == "climate":
+                    # Temperature + optioneel OnOff + FanSpeed
                     traits.append("action.devices.traits.TemperatureSetting")
+                    traits.append("action.devices.traits.OnOff")
                     hvac_modes = state.attributes.get("hvac_modes", [])
                     fan_modes = state.attributes.get("fan_modes")
                     if fan_modes:
@@ -184,9 +187,15 @@ class DeviceManager:
                     # unknown sensor type without state -> skip
                     continue
             name = state.name if state and getattr(state, 'name', None) else eid
+            # Device type switch voor climate als fan_modes (met FanSpeed trait) aanwezig → AC_UNIT gebruiken
+            dtype = SUPPORTED_DOMAINS[domain][0]
+            if domain == "climate" and state and state.attributes.get("fan_modes"):
+                # tweede element in lijst is AC_UNIT
+                if len(SUPPORTED_DOMAINS["climate"]) > 1:
+                    dtype = SUPPORTED_DOMAINS["climate"][1]
             dev = {
                 "id": sid,
-                "type": SUPPORTED_DOMAINS[domain][0],
+                "type": dtype,
                 "traits": traits,
                 "name": {"name": name},
                 "willReportState": False,
@@ -207,6 +216,11 @@ class DeviceManager:
                 eid = self.resolve_entity(sid) or sid
                 state = self.hass.states.get(eid)
                 if not state:
+                    # state ontbreekt → log en skip
+                    try:
+                        self.hass.logger().info("habridge: EXECUTE skip %s no state", eid)
+                    except Exception:  # noqa: BLE001
+                        pass
                     continue
                 domain = state.domain
                 for exec_cmd in cmd.get("execution", []):
@@ -215,6 +229,27 @@ class DeviceManager:
                     if ctype == "action.devices.commands.OnOff" and domain in ("switch", "light"):
                         turn_on = params.get("on")
                         await self.hass.services.async_call(domain, f"turn_{'on' if turn_on else 'off'}", {"entity_id": eid}, blocking=False)
+                        results.append({"ids": [sid], "status": "SUCCESS"})
+                    elif ctype == "action.devices.commands.OnOff" and domain == "climate":
+                        turn_on = params.get("on")
+                        if turn_on:
+                            # Kies een werkbare modus (voorkeur huidige indien niet off, anders heat_cool/auto/heat)
+                            cur = state.state
+                            if cur and cur not in ("off", "unavailable", "unknown"):
+                                next_mode = cur
+                            else:
+                                pref = ["heat_cool", "auto", "cool", "heat"]
+                                hvac_modes = state.attributes.get("hvac_modes", [])
+                                next_mode = None
+                                for m in pref:
+                                    if m in hvac_modes:
+                                        next_mode = m
+                                        break
+                                if not next_mode:
+                                    next_mode = "heat"
+                            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": next_mode}, blocking=False)
+                        else:
+                            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": "off"}, blocking=False)
                         results.append({"ids": [sid], "status": "SUCCESS"})
                     elif ctype == "action.devices.commands.BrightnessAbsolute" and domain == "light" and "brightness" in params:
                         pct = params["brightness"]
