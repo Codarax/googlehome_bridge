@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.9] - 2025-09-17
+### Changed
+- Gecentraliseerde area lookup: nieuwe `compute_area_lookup` helper in `device_manager` elimineert dubbele logica tussen SYNC en Devices endpoint.
+
+### Added / Debug
+- `/habridge/devices?debug=1` retourneert nu `area_sources` (per entity 'entity' of 'device' bron) voor diagnose waarom Area kolom mogelijk leeg is.
+
+### Fixed / Internal
+- SYNC build gebruikt nu dezelfde area mapping als admin UI zodat roomHint en Area kolom gegarandeerd consistent zijn.
+
+### Notes
+- Als Areas nog leeg zijn: controleer dat entities een area krijgen via HA UI (Settings → Devices & Services → Devices) en herstart daarna. Gebruik vervolgens debug query voor broncontrole.
+
 ## [2.4.8] - 2025-09-17
 ### Fixed
 - Admin Devices Area kolom: gebruikte verouderde `async_get_registry` calls waardoor area namen leeg bleven. Gewijzigd naar `async_get` voor entity/area/device registries.
