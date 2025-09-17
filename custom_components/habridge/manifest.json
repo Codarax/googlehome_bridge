@@ -5,7 +5,7 @@
   "dependencies": [],
   "codeowners": ["@Codarax"],
   "requirements": ["PyJWT>=2.8.0"],
-  "version": "2.4.7",
+  "version": "2.4.8",
   "config_flow": true,
   "iot_class": "cloud_push"
 }

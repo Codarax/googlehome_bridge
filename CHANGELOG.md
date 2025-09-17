@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.4.8] - 2025-09-17
+### Fixed
+- Admin Devices Area kolom: gebruikte verouderde `async_get_registry` calls waardoor area namen leeg bleven. Gewijzigd naar `async_get` voor entity/area/device registries.
+
+### Changed
+- Versie bump voor distributie van de Area kolom fix.
+
+### Notes
+- Indien eerder geladen zonder areas: hard refresh admin panel / herstart integratie om kolom te vullen.
+
 ## [2.4.7] - 2025-09-17
 ### Added
 - `/habridge/status` endpoint: compacte health & feature metrics (devices, withAlias, withArea, roomHintApplied, cacheAgeMs, roomHintEnabled).
