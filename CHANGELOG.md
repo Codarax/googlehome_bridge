@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.4.6] - 2025-09-17
+### Added
+- Admin Devices UI: alias badge indicator (tooltip shows original name) wanneer een alias actief is.
+
+### Changed
+- Aliases: bewaren nu exacte ingevoerde whitespace (geen strip behalve voor leeg detectie). Lege / whitespace-only invoer wist bestaande alias.
+- Devices endpoint (`/habridge/devices`) levert nu `orig_name` en `alias` velden naast weergegeven naam.
+
+### Fixed
+- roomHint: fallback naar device registry area wanneer entity area ontbreekt (meer apparaten krijgen juiste kamer).
+- Front-end rename flow: inline edit placeholder en automatische refresh zodat alias meteen zichtbaar is.
+
+### Notes
+- Forceer een Google "Sync my devices" na aanpassen van meerdere aliases om namen in Google Home te vernieuwen.
+- Clearing an alias (leeg veld) herstelt originele Home Assistant naam in volgende SYNC.
+
 ## [2.4.5] - 2025-09-17
 ### Added
 - roomHint toggle + area → Google `roomHint` mapping (instelbaar in Settings) met Re-SYNC knop en badge telling hoeveel devices een roomHint kregen.
