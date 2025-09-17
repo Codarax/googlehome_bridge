@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.7] - 2025-09-17
+### Added
+- `/habridge/status` endpoint: compacte health & feature metrics (devices, withAlias, withArea, roomHintApplied, cacheAgeMs, roomHintEnabled).
+
+### Debug / Diagnostics
+- `build_sync` logging van area hits (entity vs device fallback) + alias telling wanneer cache vernieuwt.
+
+### Changed
+- Admin Devices UI toont nu aparte kolommen: Name (origineel), Alias, Area.
+
+### Notes
+- Gebruik `/habridge/status?token=<admin_token>` voor snelle controle zonder volledige SYNC payload.
+
 ## [2.4.6] - 2025-09-17
 ### Added
 - Admin Devices UI: alias badge indicator (tooltip shows original name) wanneer een alias actief is.

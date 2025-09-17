@@ -30,6 +30,7 @@ from .http import (
     SettingsView,
     TriggerSyncView,
     AliasesView,
+    StatusView,
 )
 import secrets
 import logging
@@ -109,6 +110,7 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
     hass.http.register_view(SettingsView(hass, admin_token, smart_view))
     hass.http.register_view(TriggerSyncView(device_mgr, admin_token, smart_view))
     hass.http.register_view(AliasesView(hass, admin_token, smart_view))
+    hass.http.register_view(StatusView(hass, admin_token, device_mgr))
 
     async def _register_panel(*_):
         if hass.data.get(PANEL_ID):

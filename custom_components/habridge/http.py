@@ -325,7 +325,7 @@ button:hover{background:#f0f3f5;}
                 <button onclick='bulk(false)'>Clear All</button>
             </div>
         </div>
-    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th><th style='width:70px;'>Edit</th></tr></thead><tbody></tbody></table>
+    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Alias</th><th>Area</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th><th style='width:70px;'>Edit</th></tr></thead><tbody></tbody></table>
     </div>
     <div id="view-logs" style="display:none;">
         <div class='toolbar'>
@@ -460,7 +460,16 @@ function render(){
         _filtered.forEach((r,idx)=>{
             const tr=document.createElement('tr');
             const icon=icons[r.domain]||'🔘';
-            tr.innerHTML=`<td>${idx+1}</td><td title="${r.id}">${r.stable_id||r.id}</td><td class='nm'> <span class='domain-icon'>${icon}</span><span class='dev-name'>${r.name||''}</span></td><td>${r.domain}</td><td class='value-col'>${r.value||''}</td><td style='text-align:center;'><label class='tgl'><input type='checkbox' data-id='${r.id}' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td><td style='text-align:center;'><button style='padding:2px 6px;font-size:12px;' onclick='startRename("${r.id}","${r.stable_id||r.id}",this)'>Rename</button></td>`;
+            const aliasCell = (r.alias && r.alias.length) ? `<span class='alias-text' title="Alias for ${r.orig_name.replace(/"/g,'&quot;')}">${r.alias}</span>` : '';
+            tr.innerHTML=`<td>${idx+1}</td>
+                <td title="${r.id}">${r.stable_id||r.id}</td>
+                <td class='nm'><span class='domain-icon'>${icon}</span><span class='orig-name'>${r.name||''}</span></td>
+                <td class='alias-col'>${aliasCell}</td>
+                <td>${r.area||''}</td>
+                <td>${r.domain}</td>
+                <td class='value-col'>${r.value||''}</td>
+                <td style='text-align:center;'><label class='tgl'><input type='checkbox' data-id='${r.id}' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td>
+                <td style='text-align:center;'><button style='padding:2px 6px;font-size:12px;' onclick='startRename("${r.id}","${r.stable_id||r.id}",this)'>Rename</button></td>`;
             tb.appendChild(tr);
         });
     }
@@ -585,21 +594,25 @@ loadSettings();
 (async()=>{try{const r=await fetch('/habridge/sync_preview?token='+encodeURIComponent(ADMIN_TOKEN)); if(r.ok){const data=await r.json(); const devices=data.devices||[]; const rh=devices.filter(d=>d.roomHint).length; updateRoomHintBadge(rh, devices.length);} }catch(e){}})();
 
 async function startRename(eid, sid, btn){
-    const row = btn.closest('tr'); if(!row) return; const nameSpan=row.querySelector('.dev-name'); if(!nameSpan) return;
-    const current = nameSpan.textContent;
-    const input = document.createElement('input'); input.type='text'; input.value=current; input.style.width='140px'; input.style.fontSize='12px';
-    nameSpan.replaceWith(input); btn.textContent='Save'; btn.onclick=()=>finishRename(eid,sid,input,btn,current);
+    const row = btn.closest('tr'); if(!row) return; const aliasCell=row.querySelector('.alias-col'); if(!aliasCell) return;
+    const existing = aliasCell.querySelector('.alias-text');
+    const current = existing ? existing.textContent : '';
+    const input = document.createElement('input'); input.type='text'; input.value=current; input.style.width='140px'; input.style.fontSize='12px'; input.placeholder='(empty to clear)';
+    aliasCell.innerHTML=''; aliasCell.appendChild(input);
+    btn.textContent='Save'; btn.onclick=()=>finishRename(eid,sid,input,btn,current);
 }
-async function finishRename(eid, sid, input, btn, oldName){
-    const val = input.value.trim(); if(!val){ cancelRename(eid,sid,input,btn,oldName); return; }
+async function finishRename(eid, sid, input, btn, oldAlias){
+    const raw = input.value; // preserve spaces; empty clears
+    const payload = {id:sid, alias: raw};
     btn.disabled=true; try{
-        const r=await fetch('/habridge/aliases?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sid,alias:val})});
-        if(r.ok){ const span=document.createElement('span'); span.className='dev-name'; span.textContent=val; input.replaceWith(span); btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); }
+        const r=await fetch('/habridge/aliases?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        if(r.ok){ const data=await r.json(); const aliasCell=input.parentElement; if(aliasCell){ aliasCell.innerHTML=''; if(data.alias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=data.alias; aliasCell.appendChild(span);} }
+            btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); refreshDevicesValue(); }
         else { throw new Error('HTTP '+r.status); }
-    }catch(e){ cancelRename(eid,sid,input,btn,oldName); }
+    }catch(e){ cancelRename(eid,sid,input,btn,oldAlias); }
     finally { btn.disabled=false; }
 }
-function cancelRename(eid,sid,input,btn,oldName){ const span=document.createElement('span'); span.className='dev-name'; span.textContent=oldName; input.replaceWith(span); btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); }
+function cancelRename(eid,sid,input,btn,oldAlias){ const cell=input.parentElement; if(cell){ cell.innerHTML=''; if(oldAlias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=oldAlias; cell.appendChild(span);} } btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); }
 </script></body></html>"""
 
 class AdminPageView(HomeAssistantView):
@@ -631,6 +644,25 @@ class DevicesView(HomeAssistantView):
         supplied = request.query.get('token')
         if supplied != self._token:
             return web.json_response({"error": "unauthorized"}, status=401)
+        data = self.hass.data.get('habridge') or {}
+        aliases = data.get('aliases') or {}
+        # Build area lookup once
+        area_lookup = {}
+        try:
+            from homeassistant.helpers import area_registry, entity_registry, device_registry
+            er = await entity_registry.async_get_registry(self.hass)
+            ar = await area_registry.async_get_registry(self.hass)
+            dr = await device_registry.async_get_registry(self.hass)
+            for ent in er.entities.values():
+                area_id = ent.area_id
+                if not area_id and ent.device_id:
+                    dev = dr.devices.get(ent.device_id)
+                    if dev and dev.area_id:
+                        area_id = dev.area_id
+                if area_id and area_id in ar.areas:
+                    area_lookup[ent.entity_id] = ar.areas[area_id].name
+        except Exception:  # noqa: BLE001
+            pass
         out = []
         for eid in self.device_mgr.list_entities():
             st = self.hass.states.get(eid)
@@ -656,10 +688,16 @@ class DevicesView(HomeAssistantView):
                         value = mode
                 elif domain == "sensor":
                     value = st.state
+            orig_name = st.name if st else eid
+            alias = aliases.get(stable_id) or aliases.get(eid)
+            area_name = area_lookup.get(eid)
             out.append({
                 "id": eid,
                 "stable_id": stable_id,
-                "name": st.name if st else eid,
+                "name": orig_name,
+                "orig_name": orig_name,
+                "alias": alias,
+                "area": area_name,
                 "domain": domain,
                 "value": value,
                 "selected": eid in self.device_mgr.selected()
@@ -840,27 +878,90 @@ class AliasesView(HomeAssistantView):
             return web.json_response({"error": "invalid_json"}, status=400)
         sid = body.get('id')  # stable id or entity id
         new_name = body.get('alias')
-        if not sid or not isinstance(new_name, str):
-            return web.json_response({"error": "missing_fields"}, status=400)
+        if not sid:
+            return web.json_response({"error": "missing_id"}, status=400)
+        if new_name is None:
+            return web.json_response({"error": "missing_alias"}, status=400)
+        if not isinstance(new_name, str):
+            return web.json_response({"error": "alias_not_string"}, status=400)
         data = self.hass.data.get('habridge') or {}
         aliases = data.get('aliases') or {}
-        # Accept either stable id or raw entity id; resolve stable if entity provided
         dm = data.get('device_mgr')
-        if dm and sid in dm._entity_to_stable:  # raw entity id
+        if dm and sid in getattr(dm, '_entity_to_stable', {}):  # raw entity id provided
             sid_key = dm._entity_to_stable.get(sid)
         else:
             sid_key = sid
-        aliases[sid_key] = new_name.strip()
-        # persist
+        trimmed = new_name.strip()
+        removed = False
+        if trimmed == '':  # clear alias
+            if sid_key in aliases:
+                del aliases[sid_key]
+                removed = True
+        else:
+            # preserve exact whitespace user entered
+            aliases[sid_key] = new_name
         store = data.get('alias_store')
         if store:
             await store.async_save(aliases)
-        # invalidate sync cache
-        dm = data.get('device_mgr')
         if dm:
             try:
                 dm.invalidate_sync_cache()
             except Exception:  # noqa: BLE001
                 pass
-        self._smart._push_log("ALIAS", f"{sid_key}={new_name.strip()}")
-        return web.json_response({"id": sid_key, "alias": new_name.strip()})
+        log_val = '(cleared)' if removed else new_name
+        self._smart._push_log("ALIAS", f"{sid_key}={log_val}")
+        return web.json_response({"id": sid_key, "alias": '' if removed else new_name})
+
+class StatusView(HomeAssistantView):
+    url = "/habridge/status"
+    name = "habridge:status"
+    requires_auth = False
+
+    def __init__(self, hass: HomeAssistant, admin_token: str, device_mgr: DeviceManager):
+        self.hass = hass
+        self._token = admin_token
+        self._dm = device_mgr
+
+    async def get(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        data = self.hass.data.get('habridge') or {}
+        aliases = data.get('aliases') or {}
+        settings = data.get('settings') or {}
+        # Build area map quickly (non blocking: rely on existing state & registries if available)
+        area_lookup = {}
+        try:
+            from homeassistant.helpers import area_registry, entity_registry, device_registry
+            er = await entity_registry.async_get_registry(self.hass)
+            ar = await area_registry.async_get_registry(self.hass)
+            dr = await device_registry.async_get_registry(self.hass)
+            for ent in er.entities.values():
+                area_id = ent.area_id
+                if not area_id and ent.device_id:
+                    dev = dr.devices.get(ent.device_id)
+                    if dev and dev.area_id:
+                        area_id = dev.area_id
+                if area_id and area_id in ar.areas:
+                    area_lookup[ent.entity_id] = ar.areas[area_id].name
+        except Exception:  # noqa: BLE001
+            pass
+        sync_devices = self._dm.build_sync()
+        total = len(sync_devices)
+        with_roomhint = sum(1 for d in sync_devices if 'roomHint' in d)
+        with_alias = 0
+        for d in sync_devices:
+            names = d.get('name') or {}
+            if names.get('name') and d.get('id') in aliases:
+                with_alias += 1
+        # area coverage (by entity list)
+        all_entities = list(self._dm.list_entities())
+        with_area = sum(1 for e in all_entities if e in area_lookup)
+        return web.json_response({
+            "devices": total,
+            "withAlias": with_alias,
+            "withArea": with_area,
+            "roomHintApplied": with_roomhint,
+            "roomHintEnabled": bool(settings.get('roomhint_enabled')),
+            "cacheAgeMs": self._dm.sync_cache_age_ms(),
+        })

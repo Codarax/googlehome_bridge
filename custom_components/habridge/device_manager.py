@@ -136,20 +136,33 @@ class DeviceManager:
         except Exception:  # noqa: BLE001
             aliases = {}
         area_lookup = None
+        area_entity_hits = 0
+        area_device_fallback = 0
         if roomhint_enabled:
             try:
                 from homeassistant.helpers import area_registry as ar  # type: ignore
-                areg = ar.async_get(self.hass)
-                # Build entity->area name mapping lazily when enabled
-                area_lookup = {}
-                # We can use entity registry to map entity_id -> area_id, then resolve name
                 from homeassistant.helpers import entity_registry as er  # type: ignore
+                from homeassistant.helpers import device_registry as dr  # type: ignore
+                areg = ar.async_get(self.hass)
                 ereg = er.async_get(self.hass)
+                dreg = dr.async_get(self.hass)
+                area_lookup = {}
                 for ent in ereg.entities.values():
+                    area_name = None
                     if ent.area_id:
                         area = areg.async_get_area(ent.area_id)
                         if area and area.name:
-                            area_lookup[ent.entity_id] = area.name
+                            area_name = area.name
+                            area_entity_hits += 1
+                    if not area_name and ent.device_id:
+                        dev = dreg.devices.get(ent.device_id)
+                        if dev and dev.area_id:
+                            area = areg.async_get_area(dev.area_id)
+                            if area and area.name:
+                                area_name = area.name
+                                area_device_fallback += 1
+                    if area_name:
+                        area_lookup[ent.entity_id] = area_name
             except Exception:  # noqa: BLE001
                 area_lookup = None
         for eid in self.selected():
@@ -303,7 +316,20 @@ class DeviceManager:
             self._sync_cache_ts = _t.time()
         except Exception:  # noqa: BLE001
             self._sync_cache_ts = None
+        # Lightweight debug log (avoid large payload) – only when cache freshly built
+        try:
+            import logging as _lg
+            lg = _lg.getLogger(__name__)
+            lg.debug("habridge: build_sync devices=%d roomHint=%s area_entity_hits=%d area_device_fb=%d aliases=%d", len(devices), roomhint_enabled, area_entity_hits, area_device_fallback, sum(1 for d in devices if 'name' in d and d['name'].get('name')))
+        except Exception:  # noqa: BLE001
+            pass
         return devices
+
+    def sync_cache_age_ms(self) -> int | None:
+        import time
+        if self._sync_cache_ts is None:
+            return None
+        return int((time.time() - self._sync_cache_ts) * 1000)
 
     async def execute(self, commands):
         results = []
