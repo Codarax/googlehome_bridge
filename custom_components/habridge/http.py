@@ -85,6 +85,8 @@ class SmartHomeView(HomeAssistantView):
 
     async def post(self, request):
         logger = logging.getLogger(__name__)
+        import time as _t
+        t_start = _t.perf_counter()
         # Lees eerst raw bytes zodat we bij parse error kunnen loggen wat er echt binnenkwam
         raw_bytes = await request.read()
         try:
@@ -106,8 +108,9 @@ class SmartHomeView(HomeAssistantView):
         try:
             if intent == "action.devices.SYNC":
                 devices = self.device_mgr.build_sync()
-                logger.info("habridge: SYNC returns %d devices", len(devices))
-                self._push_log("SYNC", f"devices={len(devices)}", request_id)
+                dt = int(( _t.perf_counter() - t_start)*1000)
+                logger.info("habridge: SYNC returns %d devices in %dms", len(devices), dt)
+                self._push_log("SYNC", f"devices={len(devices)} timeMs={dt}", request_id)
                 return web.json_response({"requestId": request_id, "payload": {"agentUserId": "user", "devices": devices}})
             if intent == "action.devices.QUERY":
                 devices = {}
@@ -204,6 +207,8 @@ class SmartHomeView(HomeAssistantView):
                             }
                 logger.debug("habridge: QUERY devices=%d", len(devices))
                 self._push_log("QUERY", f"devices={len(devices)}", request_id)
+                dt = int(( _t.perf_counter() - t_start)*1000)
+                self._push_log("QUERY", f"count={len(devices)} timeMs={dt}", request_id)
                 return web.json_response({"requestId": request_id, "payload": {"devices": devices}})
             if intent == "action.devices.EXECUTE":
                 raw_group = inputs[0].get("payload", {}) if isinstance(inputs[0], dict) else {}
@@ -249,7 +254,8 @@ class SmartHomeView(HomeAssistantView):
                     pass
                 short_detail = ';'.join(detail_parts)[:600]
                 logger.info("habridge: EXECUTE processed %d groups %s", len(commands), short_detail)
-                self._push_log("EXECUTE", f"groups={len(commands)} cmds={len(detail_parts)} {short_detail}", request_id)
+                dt = int(( _t.perf_counter() - t_start)*1000)
+                self._push_log("EXECUTE", f"groups={len(commands)} results={len(results)} timeMs={dt} {short_detail}", request_id)
                 return web.json_response({"requestId": request_id, "payload": {"commands": [{"ids": r["ids"], "status": r["status"]} for r in results]}})
             logger.warning("habridge: unknown intent '%s'", intent)
             self._push_log("UNKNOWN", intent or '', request_id)
@@ -389,6 +395,7 @@ function isDomainVisible(d){ if(Object.keys(_domainVisibility).length===0) retur
 document.getElementById('q').addEventListener('input',filter);
 document.getElementById('domainFilter').addEventListener('change',filter);
 document.getElementById('onlySel').addEventListener('change',filter);
+const areaFilterEl = document.getElementById('areaFilter'); if(areaFilterEl) areaFilterEl.addEventListener('change',filter);
 function showView(v){
     ['devices','logs','settings'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');
     document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
@@ -450,10 +457,13 @@ function filter(){
     const q=document.getElementById('q').value.trim().toLowerCase();
     const onlySel=document.getElementById('onlySel').checked;
     const domainF=document.getElementById('domainFilter').value;
+    const areaF= areaFilterEl? areaFilterEl.value: '';
     _filtered=_rows.filter(r=>{
         if(onlySel && !r.selected) return false;
         if(domainF && r.domain!==domainF) return false;
         if(!isDomainVisible(r.domain)) return false;
+        if(areaF==='with' && !r.area) return false;
+        if(areaF==='without' && r.area) return false;
         if(!q) return true;
     const target=[r.stable_id||'', r.id||'', r.name||'', (r.alias||''), r.domain||'', r.value||''].join(' ').toLowerCase();
         return target.includes(q);

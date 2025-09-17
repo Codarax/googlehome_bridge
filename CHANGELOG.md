@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.6.4] - 2025-09-17
+### Fixed
+- Area filter in Devices view werkte niet (geen event listener + geen filterlogica); nu hersteld.
+- Alias opslaan verdween soms direct door refresh race; pending alias wordt vastgehouden tot server bevestigt.
+
+### Added
+- Performance timing log (ms) voor SYNC / QUERY / EXECUTE in admin logs.
+
+### Notes
+- Gebruik admin Logs om latency te zien: zoek SYNC/QUERY/EXECUTE entries met timeMs=.. voor diagnose.
+
 ## [2.6.3] - 2025-09-17
 ### Added / Changed
 - Alias search: zoekveld matcht nu ook op ingestelde alias.
