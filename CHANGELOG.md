@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.5.0] - 2025-09-17
+### Fixed
+- ColorSetting trait werd niet toegevoegd wanneer de lamp wel kleur ondersteunt maar (uit) geen `rgb_color`/`hs_color` attribuut had. Detectie gebruikt nu `supported_color_modes` zodat Google kleurcommando's ("zet op rood/groen") herkent.
+- Consistente verwerking van `spectrumRGB` (hex/dec) en Kelvin → mired conversie in ColorAbsolute EXECUTE.
+
+### Added
+- Uitgebreidere capability-detectie voor kleur (hs/rgb/xy/rgbw/rgbww) + color_temp combinatie.
+
+### Internal
+- Kleine refactor in ColorAbsolute handler (str → int parsing robuuster).
+
+### Notes
+- Na update: forceer een Google "Sync my devices". Controleer in SYNC preview dat de lamp de trait `ColorSetting` heeft en test daarna spraakcommando's.
+
 ## [2.4.9] - 2025-09-17
 ### Changed
 - Gecentraliseerde area lookup: nieuwe `compute_area_lookup` helper in `device_manager` elimineert dubbele logica tussen SYNC en Devices endpoint.
