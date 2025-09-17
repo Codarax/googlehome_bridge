@@ -10,9 +10,11 @@ from .const import (
     DOMAIN,
     STORAGE_TOKENS,
     STORAGE_DEVICES,
+    STORAGE_ALIASES,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_EXPOSE_DOMAINS,
+    STORAGE_SETTINGS,
 )
 from .token_manager import TokenManager
 from .device_manager import DeviceManager
@@ -25,6 +27,9 @@ from .http import (
     DevicesView,
     LogsView,
     SyncPreviewView,
+    SettingsView,
+    TriggerSyncView,
+    AliasesView,
 )
 import secrets
 import logging
@@ -55,12 +60,37 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
     await device_mgr.async_load()
     await device_mgr.auto_select_if_empty()
 
+    # Settings store (e.g. feature toggles). Keep simple dict. Currently: roomhint_enabled
+    settings_store = Store(hass, 1, STORAGE_SETTINGS)
+    settings = await settings_store.async_load() or {}
+    if not isinstance(settings, dict):
+        settings = {}
+    # default flag
+    if 'roomhint_enabled' not in settings:
+        settings['roomhint_enabled'] = False
+    # Mirror current integration client id/secret into settings if absent
+    if 'client_id' not in settings:
+        settings['client_id'] = client_id
+    if 'client_secret' not in settings:
+        settings['client_secret'] = client_secret
+    await settings_store.async_save(settings)
+
     hass.data[DOMAIN] = {
         "token_mgr": token_mgr,
         "device_mgr": device_mgr,
         "client_id": client_id,
         "client_secret": client_secret,
+        "settings_store": settings_store,
+        "settings": settings,
     }
+
+    # Alias store
+    alias_store = Store(hass, 1, STORAGE_ALIASES)
+    aliases = await alias_store.async_load() or {}
+    if not isinstance(aliases, dict):
+        aliases = {}
+    hass.data[DOMAIN]["alias_store"] = alias_store
+    hass.data[DOMAIN]["aliases"] = aliases
 
     oauth_view = OAuthView(hass, token_mgr)
     token_view = TokenView(hass, token_mgr)
@@ -76,6 +106,9 @@ async def _async_setup_internal(hass: HomeAssistant, *, client_id: str, client_s
     hass.http.register_view(DevicesView(hass, device_mgr, admin_token, smart_view))
     hass.http.register_view(LogsView(smart_view, admin_token))
     hass.http.register_view(SyncPreviewView(device_mgr, admin_token))
+    hass.http.register_view(SettingsView(hass, admin_token, smart_view))
+    hass.http.register_view(TriggerSyncView(device_mgr, admin_token, smart_view))
+    hass.http.register_view(AliasesView(hass, admin_token, smart_view))
 
     async def _register_panel(*_):
         if hass.data.get(PANEL_ID):

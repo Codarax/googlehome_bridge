@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.4.5] - 2025-09-17
+### Added
+- roomHint toggle + area → Google `roomHint` mapping (instelbaar in Settings) met Re-SYNC knop en badge telling hoeveel devices een roomHint kregen.
+- ColorSetting trait voor kleurlampen (RGB + kleurtemperatuur) inclusief QUERY `currentColor` en EXECUTE `ColorAbsolute`.
+- Alias (rename) functionaliteit: persistent aliases store, inline Rename knop per device, SYNC naam override, `ALIAS` log events.
+- OAuth client configuratie in admin UI: Client ID & Secret inzien/genereren/opslaan (masked secret logging).
+- Re-SYNC endpoint (`/habridge/trigger_sync`) voor directe payload inspectie + logging.
+
+### Performance
+- SYNC payload caching (8s TTL) met invalidatie bij wijzigingen (selectie, alias, settings) vermindert CPU load op Raspberry Pi.
+
+### Changed
+- EXECUTE logging uitgebreid met kleurparameters (rgb / kelvin) en alias / settings updates (gemaskt secret).
+
+### Notes
+- Na inschakelen van roomHint kan een Google “Sync my devices” nodig zijn om kamers toe te wijzen.
+- Bestaande refresh tokens blijven geldig na het wijzigen van client_secret; nieuw secret ondertekent nieuwe access tokens.
+- Caching is bewust kort; forceer Re-SYNC of wijzig een instelling voor directe vernieuwing.
+
+
 ## [2.4.1] - 2025-09-13
 ## [2.4.2] - 2025-09-17
 ### Added / Diagnostics

@@ -35,6 +35,14 @@ class DeviceManager:
         self._idmap_store: Store | None = None
         self._stable_to_entity: Dict[str, str] = {}
         self._entity_to_stable: Dict[str, str] = {}
+        # SYNC cache
+        self._sync_cache: list[dict] | None = None
+        self._sync_cache_ts: float | None = None
+        self._sync_cache_ttl = 8.0  # seconds
+
+    def invalidate_sync_cache(self):
+        self._sync_cache = None
+        self._sync_cache_ts = None
 
     async def async_load(self):
         data = await self.store.async_load()
@@ -106,7 +114,44 @@ class DeviceManager:
         return self._stable_to_entity.get(sid)
 
     def build_sync(self):
+        # Return cached result if still fresh
+        import time
+        if self._sync_cache is not None and self._sync_cache_ts is not None:
+            if (time.time() - self._sync_cache_ts) < self._sync_cache_ttl:
+                return self._sync_cache
         devices = []
+        # Read global settings for roomHint toggle if available
+        settings = {}
+        try:
+            domain_data = self.hass.data.get('habridge')
+            if domain_data:
+                settings = domain_data.get('settings') or {}
+        except Exception:  # noqa: BLE001
+            settings = {}
+        roomhint_enabled = bool(settings.get('roomhint_enabled'))
+        aliases = {}
+        try:
+            if domain_data:
+                aliases = domain_data.get('aliases') or {}
+        except Exception:  # noqa: BLE001
+            aliases = {}
+        area_lookup = None
+        if roomhint_enabled:
+            try:
+                from homeassistant.helpers import area_registry as ar  # type: ignore
+                areg = ar.async_get(self.hass)
+                # Build entity->area name mapping lazily when enabled
+                area_lookup = {}
+                # We can use entity registry to map entity_id -> area_id, then resolve name
+                from homeassistant.helpers import entity_registry as er  # type: ignore
+                ereg = er.async_get(self.hass)
+                for ent in ereg.entities.values():
+                    if ent.area_id:
+                        area = areg.async_get_area(ent.area_id)
+                        if area and area.name:
+                            area_lookup[ent.entity_id] = area.name
+            except Exception:  # noqa: BLE001
+                area_lookup = None
         for eid in self.selected():
             state = self.hass.states.get(eid)
             # Allow inclusion even if state not yet loaded (e.g. after restart) so Google keeps device
@@ -121,6 +166,47 @@ class DeviceManager:
                     traits.append("action.devices.traits.OnOff")
                     if domain == "light" and state.attributes.get(ATTR_BRIGHTNESS) is not None:
                         traits.append("action.devices.traits.Brightness")
+                    if domain == "light":
+                        # Detect color support: rgb_color, hs_color, color_temp
+                        has_rgb = state.attributes.get("rgb_color") is not None or state.attributes.get("hs_color") is not None
+                        has_ct = state.attributes.get("min_mireds") is not None and state.attributes.get("max_mireds") is not None
+                        if has_rgb or has_ct:
+                            traits.append("action.devices.traits.ColorSetting")
+                            cattrs = {}
+                            # Support both RGB and Temperature
+                            if has_rgb and has_ct:
+                                cattrs["colorModel"] = "rgb"
+                                # convert mireds to Kelvin range (inverse)
+                                try:
+                                    min_m = state.attributes.get("min_mireds")
+                                    max_m = state.attributes.get("max_mireds")
+                                    if isinstance(min_m, (int,float)) and isinstance(max_m,(int,float)) and min_m>0 and max_m>0:
+                                        min_k = int(round(1000000/max_m))
+                                        max_k = int(round(1000000/min_m))
+                                        cattrs["temperatureMinK"] = min_k
+                                        cattrs["temperatureMaxK"] = max_k
+                                except Exception:  # noqa: BLE001
+                                    pass
+                            elif has_rgb:
+                                cattrs["colorModel"] = "rgb"
+                            elif has_ct:
+                                # Only temperature
+                                try:
+                                    min_m = state.attributes.get("min_mireds")
+                                    max_m = state.attributes.get("max_mireds")
+                                    if isinstance(min_m, (int,float)) and isinstance(max_m,(int,float)) and min_m>0 and max_m>0:
+                                        min_k = int(round(1000000/max_m))
+                                        max_k = int(round(1000000/min_m))
+                                        cattrs["temperatureMinK"] = min_k
+                                        cattrs["temperatureMaxK"] = max_k
+                                except Exception:  # noqa: BLE001
+                                    pass
+                            # merge with existing attrs (if any)
+                            if cattrs:
+                                if attrs:
+                                    attrs.update(cattrs)
+                                else:
+                                    attrs = cattrs
                 elif domain == "climate":
                     # Temperature + optioneel OnOff + FanSpeed
                     traits.append("action.devices.traits.TemperatureSetting")
@@ -187,6 +273,10 @@ class DeviceManager:
                     # unknown sensor type without state -> skip
                     continue
             name = state.name if state and getattr(state, 'name', None) else eid
+            # Allow alias override by stable id or original entity id
+            alias = aliases.get(sid) or aliases.get(eid)
+            if alias:
+                name = alias
             # Device type switch voor climate als fan_modes (met FanSpeed trait) aanwezig → AC_UNIT gebruiken
             dtype = SUPPORTED_DOMAINS[domain][0]
             if domain == "climate" and state and state.attributes.get("fan_modes"):
@@ -201,9 +291,18 @@ class DeviceManager:
                 "willReportState": False,
                 "otherDeviceIds": [{"deviceId": eid}],
             }
+            if roomhint_enabled and area_lookup and eid in area_lookup:
+                dev["roomHint"] = area_lookup[eid]
             if attrs:
                 dev["attributes"] = attrs
             devices.append(dev)
+        # store cache
+        self._sync_cache = devices
+        try:
+            import time as _t
+            self._sync_cache_ts = _t.time()
+        except Exception:  # noqa: BLE001
+            self._sync_cache_ts = None
         return devices
 
     async def execute(self, commands):
@@ -293,6 +392,31 @@ class DeviceManager:
                             fm = fan_speed[6:] if fan_speed.lower().startswith("speed_") else fan_speed
                             await self.hass.services.async_call("climate", "set_fan_mode", {"entity_id": eid, "fan_mode": fm}, blocking=False)
                             results.append({"ids": [sid], "status": "SUCCESS"})
+                    elif ctype == "action.devices.commands.ColorAbsolute" and domain == "light":
+                        color = params.get("color") or {}
+                        data = {"entity_id": eid}
+                        # spectrumRgb preferred
+                        spec = color.get("spectrumRGB") or color.get("spectrumRgb")
+                        temp_k = color.get("temperatureK") or color.get("temperaturek")
+                        try:
+                            if spec is not None:
+                                # spec is integer 0xRRGGBB
+                                if isinstance(spec, str) and spec.startswith("0x"):
+                                    spec = int(spec, 16)
+                                if isinstance(spec, int):
+                                    r = (spec >> 16) & 0xFF
+                                    g = (spec >> 8) & 0xFF
+                                    b = spec & 0xFF
+                                    data["rgb_color"] = [r, g, b]
+                            elif temp_k is not None:
+                                # convert Kelvin to mireds
+                                if isinstance(temp_k, (int,float)) and temp_k > 0:
+                                    mired = int(round(1000000 / float(temp_k)))
+                                    data["color_temp"] = mired
+                        except Exception:  # noqa: BLE001
+                            pass
+                        await self.hass.services.async_call("light", "turn_on", data, blocking=False)
+                        results.append({"ids": [sid], "status": "SUCCESS"})
         return results
 
     def get_selection_map(self) -> Dict[str, bool]:
@@ -301,6 +425,7 @@ class DeviceManager:
     async def set_selection(self, entity_id: str, value: bool):
         self._selections[entity_id] = value
         await self.async_persist()
+        self.invalidate_sync_cache()
 
     async def bulk_update(self, updates: Dict[str, bool]):
         changed = False
@@ -315,3 +440,4 @@ class DeviceManager:
                 self._ensure_mapping(eid)
         if changed:
             await self.async_persist()
+            self.invalidate_sync_cache()

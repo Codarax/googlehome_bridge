@@ -118,11 +118,40 @@ class SmartHomeView(HomeAssistantView):
                     domain = st.domain
                     sid = self.device_mgr.stable_id(eid)
                     if domain in ("switch", "light"):
-                        devices[sid] = {"on": st.state == "on", "online": True}
+                        resp = {"on": st.state == "on", "online": True}
                         if domain == "light" and st.attributes.get("brightness") is not None:
                             bri = st.attributes.get("brightness")
-                            pct = int(round(bri * 100 / 255))
-                            devices[sid]["brightness"] = pct
+                            try:
+                                pct = int(round(bri * 100 / 255))
+                                resp["brightness"] = pct
+                            except Exception:  # noqa: BLE001
+                                pass
+                        if domain == "light":
+                            # Color reporting
+                            rgb = st.attributes.get("rgb_color")
+                            hs = st.attributes.get("hs_color")
+                            ct = st.attributes.get("color_temp")
+                            cur = {}
+                            if rgb and isinstance(rgb,(list,tuple)) and len(rgb)==3:
+                                try:
+                                    r,g,b = rgb
+                                    spec = (int(r)<<16) + (int(g)<<8) + int(b)
+                                    cur["spectrumRgb"] = spec
+                                except Exception:  # noqa: BLE001
+                                    pass
+                            elif hs and isinstance(hs,(list,tuple)) and len(hs)==2:
+                                # convert hs to approximate RGB using HA util if desired (skip – minimal)
+                                pass
+                            if ct and isinstance(ct,(int,float)) and ct>0:
+                                try:
+                                    k = int(round(1000000/ct))
+                                    # Provide temperatureK only if no RGB present or both supported
+                                    cur["temperatureK"] = k
+                                except Exception:  # noqa: BLE001
+                                    pass
+                            if cur:
+                                resp["currentColor"] = cur
+                        devices[sid] = resp
                     elif domain == "climate":
                         cur = st.attributes.get("current_temperature")
                         hvac = st.state
@@ -206,6 +235,15 @@ class SmartHomeView(HomeAssistantView):
                                     mini.append(f"temp={params['thermostatTemperatureSetpoint']}")
                                 if "fanSpeed" in params:
                                     mini.append(f"fan={params['fanSpeed']}")
+                                if "color" in params:
+                                    col = params["color"] or {}
+                                    if isinstance(col, dict):
+                                        if 'spectrumRGB' in col:
+                                            mini.append(f"rgb={col['spectrumRGB']}")
+                                        elif 'spectrumRgb' in col:
+                                            mini.append(f"rgb={col['spectrumRgb']}")
+                                        elif 'temperatureK' in col:
+                                            mini.append(f"k={col['temperatureK']}")
                                 detail_parts.append(f"{did}:{cname}({','.join(mini)})")
                 except Exception:  # noqa: BLE001
                     pass
@@ -287,7 +325,7 @@ button:hover{background:#f0f3f5;}
                 <button onclick='bulk(false)'>Clear All</button>
             </div>
         </div>
-    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th></tr></thead><tbody></tbody></table>
+    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th><th style='width:70px;'>Edit</th></tr></thead><tbody></tbody></table>
     </div>
     <div id="view-logs" style="display:none;">
         <div class='toolbar'>
@@ -302,7 +340,30 @@ button:hover{background:#f0f3f5;}
             <p class='muted'>Client ID & Secret pas je aan via Integratie → Opties in Home Assistant.</p>
             <h4 style='margin-top:0;'>Debug / Tools</h4>
             <button onclick='showSyncPreview()'>Force SYNC Preview</button>
+            <button style='margin-left:8px;' onclick='triggerSync()'>Re-SYNC (Google)</button>
             <pre id='syncPreview' style='margin-top:12px;display:none;max-height:300px;overflow:auto;background:#243447;color:#d6e4f2;padding:10px;font-size:12px;border-radius:6px;'></pre>
+            <div id='roomHintBadge' style='margin-top:8px;font-size:12px;color:#334058;'></div>
+        </div>
+        <div style='background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:14px;margin-bottom:16px;'>
+            <h4 style='margin-top:0;'>OAuth Client Config</h4>
+            <div style='display:flex;flex-direction:column;gap:10px;max-width:480px;'>
+                <label style='font-size:13px;'>Client ID<br><input id='cid' type='text' style='width:100%;padding:6px;'></label>
+                <label style='font-size:13px;'>Client Secret<br><div style='display:flex;gap:6px;'><input id='csec' type='password' style='flex:1;padding:6px;'><button type='button' onclick='toggleSecret()' style='padding:4px 8px;'>Show</button></div></label>
+                <div style='display:flex;gap:8px;'>
+                    <button type='button' onclick='genClientId()'>Gen ID</button>
+                    <button type='button' onclick='genClientSecret()'>Gen Secret</button>
+                    <button type='button' style='margin-left:auto;background:#3b82f6;color:#fff;' onclick='saveClientCreds()'>Save</button>
+                </div>
+                <div id='credStatus' class='muted'></div>
+            </div>
+            <p class='muted' style='margin-top:10px;'>Wijzigingen werken direct voor nieuwe OAuth flows en tokens. Bestaande refresh tokens blijven geldig maar nieuwe access tokens worden met de nieuwe secret ondertekend.</p>
+        </div>
+        <div style='background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:14px;margin-bottom:16px;'>
+            <h4 style='margin-top:0;'>Google Home Room Mapping</h4>
+            <label style='display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:6px;'><input type='checkbox' id='roomhint_toggle'/> Stuur Home Assistant Area naam mee als roomHint</label>
+            <p class='muted'>Indien ingeschakeld krijgen apparaten in Google Home automatisch de kamer toegewezen op basis van de Home Assistant Area. Daarna kan een nieuwe SYNC nodig zijn.</p>
+            <button onclick='toggleRoomHint()'>Opslaan</button>
+            <span id='roomhint_status' class='muted' style='margin-left:10px;'></span>
         </div>
         <div style='background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:14px;'>
             <h4 style='margin-top:0;'>Device List Filters</h4>
@@ -332,6 +393,23 @@ function showView(v){
     if(v==='logs'){refreshLogs(); startLogTimer(); stopDevTimer();}
     else if(v==='devices'){refreshDevicesValue(); if(_backgroundUpdates) startDevTimer(); stopLogTimer();}
     else {stopLogTimer(); stopDevTimer();}
+}
+async function loadSettings(){
+    try{
+        const r=await fetch('/habridge/settings?token='+encodeURIComponent(ADMIN_TOKEN));
+        if(!r.ok) return; const data=await r.json();
+        const s=data.settings||{}; const cb=document.getElementById('roomhint_toggle'); if(cb) cb.checked=!!s.roomhint_enabled;
+        const cid=document.getElementById('cid'); if(cid && s.client_id) cid.value=s.client_id;
+        const csec=document.getElementById('csec'); if(csec && s.client_secret) csec.value=s.client_secret;
+    }catch(e){}
+}
+async function toggleRoomHint(){
+    const cb=document.getElementById('roomhint_toggle'); if(!cb) return; const val=cb.checked; const st=document.getElementById('roomhint_status');
+    st.textContent='Bezig...';
+    try {
+        const r=await fetch('/habridge/settings?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({roomhint_enabled:val})});
+        if(r.ok){ st.textContent='Opgeslagen'; setTimeout(()=>{st.textContent='';},2000);} else { st.textContent='Fout'; }
+    } catch(e){ st.textContent='Fout'; }
 }
 async function load(){
     await refreshDevicesValue();
@@ -382,7 +460,7 @@ function render(){
         _filtered.forEach((r,idx)=>{
             const tr=document.createElement('tr');
             const icon=icons[r.domain]||'🔘';
-            tr.innerHTML=`<td>${idx+1}</td><td title="${r.id}">${r.stable_id||r.id}</td><td><span class='domain-icon'>${icon}</span>${r.name||''}</td><td>${r.domain}</td><td class='value-col'>${r.value||''}</td><td style='text-align:center;'><label class='tgl'><input type='checkbox' data-id='${r.id}' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td>`;
+            tr.innerHTML=`<td>${idx+1}</td><td title="${r.id}">${r.stable_id||r.id}</td><td class='nm'> <span class='domain-icon'>${icon}</span><span class='dev-name'>${r.name||''}</span></td><td>${r.domain}</td><td class='value-col'>${r.value||''}</td><td style='text-align:center;'><label class='tgl'><input type='checkbox' data-id='${r.id}' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td><td style='text-align:center;'><button style='padding:2px 6px;font-size:12px;' onclick='startRename("${r.id}","${r.stable_id||r.id}",this)'>Rename</button></td>`;
             tb.appendChild(tr);
         });
     }
@@ -440,6 +518,33 @@ async function showSyncPreview(){
          if(r.ok){ const data=await r.json(); pre.textContent=JSON.stringify(data,null,2); pre.style.display='block'; }
     } else { pre.style.display='none'; }
 }
+async function triggerSync(){
+    const btns=document.querySelectorAll('button');
+    try{
+        const r=await fetch('/habridge/trigger_sync?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST'});
+        if(r.ok){
+            const data=await r.json();
+            updateRoomHintBadge(data.roomhint_count, data.count);
+            // update preview if open
+            const pre=document.getElementById('syncPreview');
+            if(pre && pre.style.display!=='none'){
+                pre.textContent=JSON.stringify({devices:data.devices},null,2);
+            }
+        }
+    }catch(e){}
+}
+function updateRoomHintBadge(rh,total){
+    const el=document.getElementById('roomHintBadge'); if(!el) return;
+    if(total===undefined||total===0){ el.textContent=''; return; }
+    el.textContent=`roomHint toegepast op ${rh}/${total} devices`;
+}
+function genRandom(len){const chars='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';let o='';for(let i=0;i<len;i++)o+=chars[Math.floor(Math.random()*chars.length)];return o;}
+function genClientId(){ const cid=document.getElementById('cid'); if(cid) cid.value='cid_'+genRandom(10); }
+function genClientSecret(){ const csec=document.getElementById('csec'); if(csec) csec.value='sec_'+genRandom(30); }
+function toggleSecret(){ const csec=document.getElementById('csec'); if(!csec) return; if(csec.type==='password'){ csec.type='text'; event.target.textContent='Hide'; } else { csec.type='password'; event.target.textContent='Show'; } }
+async function saveClientCreds(){ const cid=document.getElementById('cid'); const csec=document.getElementById('csec'); const st=document.getElementById('credStatus'); if(!cid||!csec||!st) return; st.textContent='Opslaan...';
+    try{ const r=await fetch('/habridge/settings?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:cid.value,client_secret:csec.value})}); if(r.ok){ st.textContent='Opgeslagen'; setTimeout(()=>st.textContent='',2500);} else { st.textContent='Fout'; } }catch(e){ st.textContent='Fout'; }
+}
 // Settings pane uitbreiden met toggle voor background updates
 const settingsDiv=document.getElementById('view-settings');
 if(settingsDiv){
@@ -475,6 +580,26 @@ function resetDomainVisibility(){ _domainVisibility={}; localStorage.removeItem(
 const origPopulateDomainFilter = populateDomainFilter;
 populateDomainFilter = function(){ origPopulateDomainFilter(); buildDomainSettings(); };
 load();
+loadSettings();
+// Also fetch initial sync preview silently to compute roomHint badge
+(async()=>{try{const r=await fetch('/habridge/sync_preview?token='+encodeURIComponent(ADMIN_TOKEN)); if(r.ok){const data=await r.json(); const devices=data.devices||[]; const rh=devices.filter(d=>d.roomHint).length; updateRoomHintBadge(rh, devices.length);} }catch(e){}})();
+
+async function startRename(eid, sid, btn){
+    const row = btn.closest('tr'); if(!row) return; const nameSpan=row.querySelector('.dev-name'); if(!nameSpan) return;
+    const current = nameSpan.textContent;
+    const input = document.createElement('input'); input.type='text'; input.value=current; input.style.width='140px'; input.style.fontSize='12px';
+    nameSpan.replaceWith(input); btn.textContent='Save'; btn.onclick=()=>finishRename(eid,sid,input,btn,current);
+}
+async function finishRename(eid, sid, input, btn, oldName){
+    const val = input.value.trim(); if(!val){ cancelRename(eid,sid,input,btn,oldName); return; }
+    btn.disabled=true; try{
+        const r=await fetch('/habridge/aliases?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sid,alias:val})});
+        if(r.ok){ const span=document.createElement('span'); span.className='dev-name'; span.textContent=val; input.replaceWith(span); btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); }
+        else { throw new Error('HTTP '+r.status); }
+    }catch(e){ cancelRename(eid,sid,input,btn,oldName); }
+    finally { btn.disabled=false; }
+}
+function cancelRename(eid,sid,input,btn,oldName){ const span=document.createElement('span'); span.className='dev-name'; span.textContent=oldName; input.replaceWith(span); btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); }
 </script></body></html>"""
 
 class AdminPageView(HomeAssistantView):
@@ -590,3 +715,152 @@ class SyncPreviewView(HomeAssistantView):
             return web.json_response({"error": "unauthorized"}, status=401)
         devices = self._dm.build_sync()
         return web.json_response({"devices": devices})
+
+class SettingsView(HomeAssistantView):
+    url = "/habridge/settings"
+    name = "habridge:settings"
+    requires_auth = False
+
+    def __init__(self, hass: HomeAssistant, admin_token: str, smart_view: SmartHomeView):
+        self.hass = hass
+        self._token = admin_token
+        self._smart = smart_view
+
+    async def get(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        data = self.hass.data.get('habridge') or {}
+        settings = data.get('settings') or {}
+        return web.json_response({"settings": settings})
+
+    async def post(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid_json"}, status=400)
+        data = self.hass.data.get('habridge') or {}
+        settings = data.get('settings') or {}
+        changed = False
+        if 'roomhint_enabled' in body:
+            val = bool(body['roomhint_enabled'])
+            if settings.get('roomhint_enabled') != val:
+                settings['roomhint_enabled'] = val
+                changed = True
+        if 'client_id' in body and isinstance(body.get('client_id'), str):
+            new_id = body['client_id'].strip()
+            if new_id and settings.get('client_id') != new_id:
+                settings['client_id'] = new_id
+                # reflect runtime copy
+                data['client_id'] = new_id
+                changed = True
+        if 'client_secret' in body and isinstance(body.get('client_secret'), str):
+            new_secret = body['client_secret'].strip()
+            if new_secret and settings.get('client_secret') != new_secret:
+                settings['client_secret'] = new_secret
+                # update token manager secret in-memory for new JWT signing going forward
+                tm = data.get('token_mgr')
+                if tm:
+                    tm.client_secret = new_secret
+                data['client_secret'] = new_secret
+                changed = True
+        if changed:
+            # persist
+            store = data.get('settings_store')
+            if store:
+                await store.async_save(settings)
+            # invalidate sync cache if roomhint or credentials changed (safe to always invalidate on any setting change)
+            dm = data.get('device_mgr')
+            if dm:
+                try:
+                    dm.invalidate_sync_cache()
+                except Exception:  # noqa: BLE001
+                    pass
+            # safe log (mask secrets)
+            log_parts = []
+            if 'roomhint_enabled' in body:
+                log_parts.append(f"roomhint_enabled={settings.get('roomhint_enabled')}")
+            if 'client_id' in body:
+                cid = settings.get('client_id') or ''
+                log_parts.append(f"client_id={cid}")
+            if 'client_secret' in body:
+                cs = settings.get('client_secret') or ''
+                mask = (cs[:4] + '***' + cs[-4:]) if len(cs) > 8 else '***'
+                log_parts.append(f"client_secret={mask}")
+            self._smart._push_log("SET", ' '.join(log_parts))
+        return web.json_response({"settings": settings, "changed": changed})
+
+class TriggerSyncView(HomeAssistantView):
+    url = "/habridge/trigger_sync"
+    name = "habridge:trigger_sync"
+    requires_auth = False
+
+    def __init__(self, device_mgr: DeviceManager, admin_token: str, smart_view: SmartHomeView):
+        self._dm = device_mgr
+        self._token = admin_token
+        self._smart = smart_view
+
+    async def post(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        devices = self._dm.build_sync()
+        roomhint_count = sum(1 for d in devices if 'roomHint' in d)
+        self._smart._push_log("SYNC_TRIGGER", f"devices={len(devices)} roomhints={roomhint_count}")
+        return web.json_response({"devices": devices, "count": len(devices), "roomhint_count": roomhint_count})
+
+class AliasesView(HomeAssistantView):
+    url = "/habridge/aliases"
+    name = "habridge:aliases"
+    requires_auth = False
+
+    def __init__(self, hass: HomeAssistant, admin_token: str, smart_view: SmartHomeView):
+        self.hass = hass
+        self._token = admin_token
+        self._smart = smart_view
+
+    async def get(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        data = self.hass.data.get('habridge') or {}
+        aliases = data.get('aliases') or {}
+        return web.json_response({"aliases": aliases})
+
+    async def post(self, request):
+        supplied = request.query.get('token')
+        if supplied != self._token:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "invalid_json"}, status=400)
+        sid = body.get('id')  # stable id or entity id
+        new_name = body.get('alias')
+        if not sid or not isinstance(new_name, str):
+            return web.json_response({"error": "missing_fields"}, status=400)
+        data = self.hass.data.get('habridge') or {}
+        aliases = data.get('aliases') or {}
+        # Accept either stable id or raw entity id; resolve stable if entity provided
+        dm = data.get('device_mgr')
+        if dm and sid in dm._entity_to_stable:  # raw entity id
+            sid_key = dm._entity_to_stable.get(sid)
+        else:
+            sid_key = sid
+        aliases[sid_key] = new_name.strip()
+        # persist
+        store = data.get('alias_store')
+        if store:
+            await store.async_save(aliases)
+        # invalidate sync cache
+        dm = data.get('device_mgr')
+        if dm:
+            try:
+                dm.invalidate_sync_cache()
+            except Exception:  # noqa: BLE001
+                pass
+        self._smart._push_log("ALIAS", f"{sid_key}={new_name.strip()}")
+        return web.json_response({"id": sid_key, "alias": new_name.strip()})
