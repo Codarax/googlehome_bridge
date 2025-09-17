@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.6.0] - 2025-09-17
+### Added
+- Scene & Script ondersteuning: beide exposed als Google `SCENE` met `Scene` trait. Spraak: "Hey Google, activeer <naam>" (alias ook geldig). Scripts gebruiken eveneens ActivateScene (stateless).
+- EXECUTE mapping: `ActivateScene` → `scene.turn_on` / `script.turn_on` (geen reversible scenes; `deactivate` genegeerd).
+- Admin UI: Area Source kolom (entity/device), area filter (all/with/without), kleur badge voor lights (ColorSetting) met RGB preview.
+
+### Changed
+- Default expose lijst uitgebreid met `scene` en `script`. Overweeg domeinen te beperken via Options bij veel scenes.
+
+### Internal
+- Devices endpoint levert nu extra velden: `has_color`, `color_preview`, `area_source`.
+
+### Notes
+- Scenes & scripts zijn stateless: geen QUERY status; alleen activeren. Optionele toekomstige feature: scripts als OnOff wrapper.
+
 ## [2.5.0] - 2025-09-17
 ### Fixed
 - ColorSetting trait werd niet toegevoegd wanneer de lamp wel kleur ondersteunt maar (uit) geen `rgb_color`/`hs_color` attribuut had. Detectie gebruikt nu `supported_color_modes` zodat Google kleurcommando's ("zet op rood/groen") herkent.

@@ -15,6 +15,9 @@ SUPPORTED_DOMAINS = {
     # Voor climate kiezen we standaard THERMOSTAT; als fan_modes aanwezig zijn gebruiken we AC_UNIT dynamisch.
     "climate": ["action.devices.types.THERMOSTAT", "action.devices.types.AC_UNIT"],
     "sensor": ["action.devices.types.SENSOR"],
+    # Scenes & scripts stateless → Google SCENE type + Scene trait (activate only)
+    "scene": ["action.devices.types.SCENE"],
+    "script": ["action.devices.types.SCENE"],
 }
 
 def _slugify_entity(eid: str) -> str:
@@ -140,29 +143,9 @@ class DeviceManager:
         area_device_fallback = 0
         if roomhint_enabled:
             try:
-                from homeassistant.helpers import area_registry as ar  # type: ignore
-                from homeassistant.helpers import entity_registry as er  # type: ignore
-                from homeassistant.helpers import device_registry as dr  # type: ignore
-                areg = ar.async_get(self.hass)
-                ereg = er.async_get(self.hass)
-                dreg = dr.async_get(self.hass)
-                area_lookup = {}
-                for ent in ereg.entities.values():
-                    area_name = None
-                    if ent.area_id:
-                        area = areg.async_get_area(ent.area_id)
-                        if area and area.name:
-                            area_name = area.name
-                            area_entity_hits += 1
-                    if not area_name and ent.device_id:
-                        dev = dreg.devices.get(ent.device_id)
-                        if dev and dev.area_id:
-                            area = areg.async_get_area(dev.area_id)
-                            if area and area.name:
-                                area_name = area.name
-                                area_device_fallback += 1
-                    if area_name:
-                        area_lookup[ent.entity_id] = area_name
+                area_lookup, stats = self.compute_area_lookup()
+                area_entity_hits = stats.get('entity_hits', 0)
+                area_device_fallback = stats.get('device_fallback', 0)
             except Exception:  # noqa: BLE001
                 area_lookup = None
         for eid in self.selected():
@@ -180,9 +163,17 @@ class DeviceManager:
                     if domain == "light" and state.attributes.get(ATTR_BRIGHTNESS) is not None:
                         traits.append("action.devices.traits.Brightness")
                     if domain == "light":
-                        # Detect color support: rgb_color, hs_color, color_temp
-                        has_rgb = state.attributes.get("rgb_color") is not None or state.attributes.get("hs_color") is not None
-                        has_ct = state.attributes.get("min_mireds") is not None and state.attributes.get("max_mireds") is not None
+                        # Detect color support: prefer capability list over current state attributes
+                        supported_modes = state.attributes.get("supported_color_modes")
+                        if isinstance(supported_modes, (list, set)):
+                            sm_lower = {str(m).lower() for m in supported_modes}
+                        else:
+                            sm_lower = set()
+                        # If light supports hs/rgb/xy modes we expose color even if currently off (attributes absent)
+                        has_rgb = any(m in sm_lower for m in ("hs", "rgb", "xy", "rgbw", "rgbww")) or \
+                                  state.attributes.get("rgb_color") is not None or state.attributes.get("hs_color") is not None
+                        # Color temperature via supported modes or mired range
+                        has_ct = ("color_temp" in sm_lower) or (state.attributes.get("min_mireds") is not None and state.attributes.get("max_mireds") is not None)
                         if has_rgb or has_ct:
                             traits.append("action.devices.traits.ColorSetting")
                             cattrs = {}
@@ -276,6 +267,10 @@ class DeviceManager:
                         # if state exists but unsupported sensor, skip
                         if state:
                             continue
+                elif domain in ("scene", "script"):
+                    # Stateless scene activation
+                    traits.append("action.devices.traits.Scene")
+                    attrs = {"sceneReversible": False}
             else:
                 # minimal trait assumption for missing state to keep device visible (fallbacks)
                 if domain in ("switch", "light"):
@@ -285,6 +280,9 @@ class DeviceManager:
                 elif domain == "sensor":
                     # unknown sensor type without state -> skip
                     continue
+                elif domain in ("scene", "script"):
+                    traits.append("action.devices.traits.Scene")
+                    attrs = {"sceneReversible": False}
             name = state.name if state and getattr(state, 'name', None) else eid
             # Allow alias override by stable id or original entity id
             alias = aliases.get(sid) or aliases.get(eid)
@@ -296,6 +294,9 @@ class DeviceManager:
                 # tweede element in lijst is AC_UNIT
                 if len(SUPPORTED_DOMAINS["climate"]) > 1:
                     dtype = SUPPORTED_DOMAINS["climate"][1]
+            if domain in ("scene", "script"):
+                # Use SCENE device type always
+                dtype = SUPPORTED_DOMAINS[domain][0]
             dev = {
                 "id": sid,
                 "type": dtype,
@@ -324,6 +325,48 @@ class DeviceManager:
         except Exception:  # noqa: BLE001
             pass
         return devices
+
+    def compute_area_lookup(self, debug: bool = False):
+        """Return mapping of entity_id -> area name with stats.
+
+        If debug True, also include source map entity_id -> 'entity'|'device'.
+        """
+        lookup = {}
+        stats = {"entity_hits": 0, "device_fallback": 0}
+        source_map = {} if debug else None
+        try:
+            from homeassistant.helpers import area_registry as ar  # type: ignore
+            from homeassistant.helpers import entity_registry as er  # type: ignore
+            from homeassistant.helpers import device_registry as dr  # type: ignore
+            areg = ar.async_get(self.hass)
+            ereg = er.async_get(self.hass)
+            dreg = dr.async_get(self.hass)
+            for ent in ereg.entities.values():
+                area_name = None
+                used_source = None
+                if ent.area_id:
+                    area = areg.async_get_area(ent.area_id)
+                    if area and area.name:
+                        area_name = area.name
+                        stats["entity_hits"] += 1
+                        used_source = 'entity'
+                if not area_name and ent.device_id:
+                    dev = dreg.devices.get(ent.device_id)
+                    if dev and dev.area_id:
+                        area = areg.async_get_area(dev.area_id)
+                        if area and area.name:
+                            area_name = area.name
+                            stats["device_fallback"] += 1
+                            used_source = 'device'
+                if area_name:
+                    lookup[ent.entity_id] = area_name
+                    if source_map is not None:
+                        source_map[ent.entity_id] = used_source or 'unknown'
+        except Exception:  # noqa: BLE001
+            return {}, stats if not debug else ({}, stats, {})
+        if debug:
+            return lookup, stats, source_map or {}
+        return lookup, stats
 
     def sync_cache_age_ms(self) -> int | None:
         import time
@@ -421,27 +464,35 @@ class DeviceManager:
                     elif ctype == "action.devices.commands.ColorAbsolute" and domain == "light":
                         color = params.get("color") or {}
                         data = {"entity_id": eid}
-                        # spectrumRgb preferred
                         spec = color.get("spectrumRGB") or color.get("spectrumRgb")
                         temp_k = color.get("temperatureK") or color.get("temperaturek")
                         try:
                             if spec is not None:
-                                # spec is integer 0xRRGGBB
-                                if isinstance(spec, str) and spec.startswith("0x"):
-                                    spec = int(spec, 16)
+                                # spec is integer (0xRRGGBB) or decimal
+                                if isinstance(spec, str):
+                                    if spec.startswith("0x"):
+                                        spec = int(spec, 16)
+                                    else:
+                                        spec = int(spec)
                                 if isinstance(spec, int):
                                     r = (spec >> 16) & 0xFF
                                     g = (spec >> 8) & 0xFF
                                     b = spec & 0xFF
                                     data["rgb_color"] = [r, g, b]
                             elif temp_k is not None:
-                                # convert Kelvin to mireds
-                                if isinstance(temp_k, (int,float)) and temp_k > 0:
+                                if isinstance(temp_k, (int, float)) and temp_k > 0:
                                     mired = int(round(1000000 / float(temp_k)))
                                     data["color_temp"] = mired
                         except Exception:  # noqa: BLE001
                             pass
                         await self.hass.services.async_call("light", "turn_on", data, blocking=False)
+                        results.append({"ids": [sid], "status": "SUCCESS"})
+                    elif ctype == "action.devices.commands.ActivateScene" and domain in ("scene", "script"):
+                        # Google sends deactivate for reversible scenes; we ignore as non reversible
+                        deactivate = params.get("deactivate")
+                        if not deactivate:
+                            svc_domain = domain
+                            await self.hass.services.async_call(svc_domain, "turn_on", {"entity_id": eid}, blocking=False)
                         results.append({"ids": [sid], "status": "SUCCESS"})
         return results
 

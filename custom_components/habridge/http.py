@@ -320,12 +320,13 @@ button:hover{background:#f0f3f5;}
             <div class="filter-row">
                 <input id='q' placeholder='Search...' type='search' />
                 <select id='domainFilter'><option value=''>All domains</option></select>
+                <select id='areaFilter'><option value=''>Area: all</option><option value='with'>Area: with</option><option value='without'>Area: without</option></select>
                 <label class='toggle-wrap'><input type='checkbox' id='onlySel'/> Selected only</label>
                 <button onclick='bulk(true)'>Select All</button>
                 <button onclick='bulk(false)'>Clear All</button>
             </div>
         </div>
-    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Alias</th><th>Area</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th><th style='width:70px;'>Edit</th></tr></thead><tbody></tbody></table>
+    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Alias</th><th>Area</th><th>Source</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th><th style='width:70px;'>Edit</th></tr></thead><tbody></tbody></table>
     </div>
     <div id="view-logs" style="display:none;">
         <div class='toolbar'>
@@ -376,6 +377,7 @@ button:hover{background:#f0f3f5;}
 <script>
 const urlParams=new URLSearchParams(window.location.search);const ADMIN_TOKEN=urlParams.get('token');
 let _rows=[];let _filtered=[];let _domainSet=new Set();
+let _aliasEditing=false; // block device list refresh while editing alias
 const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟'};
 let _logs=[];let _logTimer=null;let _devTimer=null;
 let _pendingSelections={}; // id -> desired state
@@ -416,6 +418,7 @@ async function load(){
     if(_backgroundUpdates) startDevTimer();
 }
 async function refreshDevicesValue(){
+    if(_aliasEditing) return; // do not overwrite row being edited
     const previous = Object.fromEntries(_rows.map(r=>[r.id,r.selected]));
     const r=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN));
     if(!r.ok) return;
@@ -454,18 +457,25 @@ function render(){
     const tb=document.querySelector('#tbl tbody');tb.innerHTML='';
     if(!_filtered.length){
         const tr=document.createElement('tr');
-        const td=document.createElement('td');td.colSpan=6;td.className='empty';td.textContent='No devices match filters';
+        const td=document.createElement('td');td.colSpan=10;td.className='empty';td.textContent='No devices match filters';
         tr.appendChild(td);tb.appendChild(tr);
     } else {
         _filtered.forEach((r,idx)=>{
             const tr=document.createElement('tr');
             const icon=icons[r.domain]||'🔘';
             const aliasCell = (r.alias && r.alias.length) ? `<span class='alias-text' title="Alias for ${r.orig_name.replace(/"/g,'&quot;')}">${r.alias}</span>` : '';
+            const colorBadge = r.has_color ? `<span style='display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:6px;vertical-align:middle;background:${r.color_preview?('#'+('000000'+r.color_preview.toString(16)).slice(-6)):'#f5c542'};border:1px solid #ccc;' title='Color capable light'></span>` : '';
+            let areaTitle='';
+            let areaDisplay = r.area||''; const src = r.area_source;
+            if(r.area){ areaTitle = src? ('Area source: '+src):''; }
+            else if(src===undefined || src===null){ areaDisplay=''; }
+            else if(!r.area){ areaDisplay='—'; areaTitle='No area mapping found (assign in HA)'; }
             tr.innerHTML=`<td>${idx+1}</td>
                 <td title="${r.id}">${r.stable_id||r.id}</td>
-                <td class='nm'><span class='domain-icon'>${icon}</span><span class='orig-name'>${r.name||''}</span></td>
+                <td class='nm'><span class='domain-icon'>${icon}</span><span class='orig-name'>${r.name||''}</span>${colorBadge}</td>
                 <td class='alias-col'>${aliasCell}</td>
-                <td>${r.area||''}</td>
+                <td ${areaTitle?`title='${areaTitle.replace(/'/g,"&#39;")}'`:''}>${areaDisplay}</td>
+                <td>${src||''}</td>
                 <td>${r.domain}</td>
                 <td class='value-col'>${r.value||''}</td>
                 <td style='text-align:center;'><label class='tgl'><input type='checkbox' data-id='${r.id}' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td>
@@ -497,8 +507,23 @@ async function toggleDevice(id,val){
     }
 }
 async function bulk(val){
-    const ups={};_filtered.forEach(r=>ups[r.id]=val);await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:ups})});
-    _filtered.forEach(r=>r.selected=val);_rows.forEach(r=>{if(ups[r.id]!==undefined) r.selected=val}); filter();
+    const ups={};
+    const now=Date.now();
+    _filtered.forEach(r=>{ups[r.id]=val; _pendingSelections[r.id]=val; _pendingLocks[r.id]=now+4000;});
+    // Optimistic UI update
+    _rows.forEach(r=>{ if(ups[r.id]!==undefined) r.selected=val; });
+    filter();
+    try{
+        const resp=await fetch('/habridge/devices?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:ups})});
+        if(!resp.ok) throw new Error('HTTP '+resp.status);
+        // shorten locks to allow server truth to flow in
+        Object.keys(ups).forEach(id=>{ _pendingLocks[id]=Date.now()+800; });
+        refreshDevicesValue();
+    }catch(e){
+        // revert on failure
+        Object.keys(ups).forEach(id=>{ _pendingSelections[id]=!val; const row=_rows.find(r=>r.id===id); if(row) row.selected=!val; });
+        filter();
+    }
 }
 async function refreshLogs(){
     const r=await fetch('/habridge/logs?token='+encodeURIComponent(ADMIN_TOKEN));
@@ -600,6 +625,9 @@ async function startRename(eid, sid, btn){
     const input = document.createElement('input'); input.type='text'; input.value=current; input.style.width='140px'; input.style.fontSize='12px'; input.placeholder='(empty to clear)';
     aliasCell.innerHTML=''; aliasCell.appendChild(input);
     btn.textContent='Save'; btn.onclick=()=>finishRename(eid,sid,input,btn,current);
+    _aliasEditing=true; stopDevTimer();
+    input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ finishRename(eid,sid,input,btn,current); } else if(e.key==='Escape'){ cancelRename(eid,sid,input,btn,current); } });
+    setTimeout(()=>{ try{ input.focus(); input.select(); }catch(e){} }, 30);
 }
 async function finishRename(eid, sid, input, btn, oldAlias){
     const raw = input.value; // preserve spaces; empty clears
@@ -607,12 +635,12 @@ async function finishRename(eid, sid, input, btn, oldAlias){
     btn.disabled=true; try{
         const r=await fetch('/habridge/aliases?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         if(r.ok){ const data=await r.json(); const aliasCell=input.parentElement; if(aliasCell){ aliasCell.innerHTML=''; if(data.alias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=data.alias; aliasCell.appendChild(span);} }
-            btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); refreshDevicesValue(); }
+            btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); refreshDevicesValue(); }
         else { throw new Error('HTTP '+r.status); }
     }catch(e){ cancelRename(eid,sid,input,btn,oldAlias); }
-    finally { btn.disabled=false; }
+    finally { btn.disabled=false; _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); }
 }
-function cancelRename(eid,sid,input,btn,oldAlias){ const cell=input.parentElement; if(cell){ cell.innerHTML=''; if(oldAlias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=oldAlias; cell.appendChild(span);} } btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); }
+function cancelRename(eid,sid,input,btn,oldAlias){ const cell=input.parentElement; if(cell){ cell.innerHTML=''; if(oldAlias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=oldAlias; cell.appendChild(span);} } btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); }
 </script></body></html>"""
 
 class AdminPageView(HomeAssistantView):
@@ -646,29 +674,26 @@ class DevicesView(HomeAssistantView):
             return web.json_response({"error": "unauthorized"}, status=401)
         data = self.hass.data.get('habridge') or {}
         aliases = data.get('aliases') or {}
-        # Build area lookup once
+        # Unified area lookup with fallback + optional debug
+        debug = request.query.get('debug') == '1'
         area_lookup = {}
+        area_sources = {}
         try:
-            from homeassistant.helpers import area_registry, entity_registry, device_registry
-            er = await entity_registry.async_get_registry(self.hass)
-            ar = await area_registry.async_get_registry(self.hass)
-            dr = await device_registry.async_get_registry(self.hass)
-            for ent in er.entities.values():
-                area_id = ent.area_id
-                if not area_id and ent.device_id:
-                    dev = dr.devices.get(ent.device_id)
-                    if dev and dev.area_id:
-                        area_id = dev.area_id
-                if area_id and area_id in ar.areas:
-                    area_lookup[ent.entity_id] = ar.areas[area_id].name
+            if debug:
+                area_lookup, stats, area_sources = self.device_mgr.compute_area_lookup(debug=True)
+            else:
+                area_lookup, _stats = self.device_mgr.compute_area_lookup()
         except Exception:  # noqa: BLE001
-            pass
+            area_lookup = {}
+            area_sources = {}
         out = []
         for eid in self.device_mgr.list_entities():
             st = self.hass.states.get(eid)
             domain = st.domain if st else eid.split('.')[0]
             stable_id = self.device_mgr.stable_id(eid)
             value = None
+            has_color = False
+            color_preview = None
             if st:
                 if domain in ("switch", "light"):
                     if domain == "light" and st.attributes.get("brightness") is not None:
@@ -679,6 +704,19 @@ class DevicesView(HomeAssistantView):
                             value = st.state
                     else:
                         value = st.state
+                    if domain == "light":
+                        # derive color capability
+                        try:
+                            scm = st.attributes.get("supported_color_modes") or []
+                            scm_l = {str(x).lower() for x in scm} if isinstance(scm, (list,set,tuple)) else set()
+                            if any(m in scm_l for m in ("hs","rgb","rgbw","rgbww","xy")) or st.attributes.get("rgb_color") or st.attributes.get("hs_color"):
+                                has_color = True
+                                rgb = st.attributes.get("rgb_color")
+                                if rgb and isinstance(rgb,(list,tuple)) and len(rgb)==3:
+                                    r,g,b = rgb
+                                    color_preview = (int(r)<<16) + (int(g)<<8) + int(b)
+                        except Exception:  # noqa: BLE001
+                            pass
                 elif domain == "climate":
                     cur = st.attributes.get("current_temperature")
                     mode = st.state
@@ -698,11 +736,17 @@ class DevicesView(HomeAssistantView):
                 "orig_name": orig_name,
                 "alias": alias,
                 "area": area_name,
+                "area_source": area_sources.get(eid) if debug else None,
                 "domain": domain,
                 "value": value,
+                "has_color": has_color,
+                "color_preview": color_preview,
                 "selected": eid in self.device_mgr.selected()
             })
-        return web.json_response({"devices": out})
+        resp = {"devices": out}
+        if debug:
+            resp["area_sources"] = area_sources
+        return web.json_response(resp)
 
     async def post(self, request):
         supplied = request.query.get('token')
@@ -933,9 +977,9 @@ class StatusView(HomeAssistantView):
         area_lookup = {}
         try:
             from homeassistant.helpers import area_registry, entity_registry, device_registry
-            er = await entity_registry.async_get_registry(self.hass)
-            ar = await area_registry.async_get_registry(self.hass)
-            dr = await device_registry.async_get_registry(self.hass)
+            er = entity_registry.async_get(self.hass)
+            ar = area_registry.async_get(self.hass)
+            dr = device_registry.async_get(self.hass)
             for ent in er.entities.values():
                 area_id = ent.area_id
                 if not area_id and ent.device_id:
