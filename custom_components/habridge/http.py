@@ -71,6 +71,12 @@ class SmartHomeView(HomeAssistantView):
         self.device_mgr = device_mgr
         self.client_secret = client_secret
         self._log_buf: list[dict] = []
+        # Start metrics sampling if available
+        try:
+            if hasattr(self.device_mgr, 'start_metrics'):
+                self.device_mgr.start_metrics()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _push_log(self, intent: str, detail: str, request_id: str | None = None):
         import time
@@ -87,7 +93,11 @@ class SmartHomeView(HomeAssistantView):
         logger = logging.getLogger(__name__)
         import time as _t
         t_start = _t.perf_counter()
-        # Lees eerst raw bytes zodat we bij parse error kunnen loggen wat er echt binnenkwam
+        # Debounced invalidation (was invalidate_sync_cache previously)
+        try:
+            self.device_mgr.debounce_invalidate()
+        except Exception:  # noqa: BLE001
+            pass
         raw_bytes = await request.read()
         try:
             # Probeer directe json.loads voor meer controle / fout logging
@@ -111,6 +121,10 @@ class SmartHomeView(HomeAssistantView):
                 dt = int(( _t.perf_counter() - t_start)*1000)
                 logger.info("habridge: SYNC returns %d devices in %dms", len(devices), dt)
                 self._push_log("SYNC", f"devices={len(devices)} timeMs={dt}", request_id)
+                try:
+                    self.device_mgr.record_latency('sync', dt)
+                except Exception:  # noqa: BLE001
+                    pass
                 return web.json_response({"requestId": request_id, "payload": {"agentUserId": "user", "devices": devices}})
             if intent == "action.devices.QUERY":
                 devices = {}
@@ -209,6 +223,10 @@ class SmartHomeView(HomeAssistantView):
                 self._push_log("QUERY", f"devices={len(devices)}", request_id)
                 dt = int(( _t.perf_counter() - t_start)*1000)
                 self._push_log("QUERY", f"count={len(devices)} timeMs={dt}", request_id)
+                try:
+                    self.device_mgr.record_latency('query', dt)
+                except Exception:  # noqa: BLE001
+                    pass
                 return web.json_response({"requestId": request_id, "payload": {"devices": devices}})
             if intent == "action.devices.EXECUTE":
                 raw_group = inputs[0].get("payload", {}) if isinstance(inputs[0], dict) else {}
@@ -256,6 +274,10 @@ class SmartHomeView(HomeAssistantView):
                 logger.info("habridge: EXECUTE processed %d groups %s", len(commands), short_detail)
                 dt = int(( _t.perf_counter() - t_start)*1000)
                 self._push_log("EXECUTE", f"groups={len(commands)} results={len(results)} timeMs={dt} {short_detail}", request_id)
+                try:
+                    self.device_mgr.record_latency('exec', dt)
+                except Exception:  # noqa: BLE001
+                    pass
                 return web.json_response({"requestId": request_id, "payload": {"commands": [{"ids": r["ids"], "status": r["status"]} for r in results]}})
             logger.warning("habridge: unknown intent '%s'", intent)
             self._push_log("UNKNOWN", intent or '', request_id)
@@ -278,7 +300,7 @@ class HealthView(HomeAssistantView):
 ADMIN_HTML_BASE = """<!DOCTYPE html><html><head><meta charset='utf-8'/><title>HA Bridge Admin</title>
 <style>
 body{font-family:Inter,Arial,sans-serif;margin:0;background:#f6f7f9;color:#222;}
-header{background:#243447;color:#fff;padding:10px 18px;display:flex;align-items:center;gap:24px;}
+header{background:#243447;color:#fff;padding:10px 18px;display:flex;align-items:center;gap:24px;position:sticky;top:0;z-index:100;box-shadow:0 2px 4px rgba(0,0,0,.15);} 
 header h1{font-size:18px;margin:0;font-weight:600;}
 nav a{color:#cfd6dd;text-decoration:none;margin-right:16px;font-size:14px;}
 nav a.active{color:#fff;font-weight:600;}
@@ -650,13 +672,34 @@ async function startRename(eid, sid, btn){
 async function finishRename(eid, sid, input, btn, oldAlias){
     const raw = input.value; // preserve spaces; empty clears
     const payload = {id:sid, alias: raw};
-    btn.disabled=true; _pendingAliasSaves[sid]=raw; try{
+    btn.disabled=true; _pendingAliasSaves[sid]=raw; 
+    const aliasCell=input.parentElement;
+    let statusEl = null;
+    if(aliasCell){
+        statusEl = document.createElement('span');
+        statusEl.style.marginLeft='6px';
+        statusEl.style.fontSize='11px';
+        statusEl.style.color='#555';
+        statusEl.textContent='Saving...';
+        aliasCell.appendChild(statusEl);
+    }
+    try{
         const r=await fetch('/habridge/aliases?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-        if(r.ok){ const data=await r.json(); const aliasCell=input.parentElement; if(aliasCell){ aliasCell.innerHTML=''; if(data.alias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=data.alias; aliasCell.appendChild(span);} }
-            btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); refreshDevicesValue(); }
-        else { throw new Error('HTTP '+r.status); }
-    }catch(e){ cancelRename(eid,sid,input,btn,oldAlias); }
-    finally { delete _pendingAliasSaves[sid]; btn.disabled=false; _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); }
+        if(!r.ok){
+            let msg='Save failed ('+r.status+')';
+            if(r.status===401) msg='Unauthorized (token?)';
+            throw new Error(msg);
+        }
+        const data=await r.json();
+        if(aliasCell){ aliasCell.innerHTML=''; if(data.alias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=data.alias; aliasCell.appendChild(span);} else { /* cleared */ } }
+        btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); refreshDevicesValue();
+    }catch(e){
+        if(statusEl){ statusEl.textContent=e.message||'Error'; statusEl.style.color='#b00020'; setTimeout(()=>{ if(statusEl&&statusEl.parentElement){ statusEl.parentElement.removeChild(statusEl);} },3000); }
+        // laat tijdelijke error zien maar herstel oude alias pas na korte delay
+        setTimeout(()=>{ cancelRename(eid,sid,input,btn,oldAlias); },800);
+    }finally {
+        delete _pendingAliasSaves[sid]; btn.disabled=false; _aliasEditing=false; if(_backgroundUpdates) startDevTimer();
+    }
 }
 function cancelRename(eid,sid,input,btn,oldAlias){ const cell=input.parentElement; if(cell){ cell.innerHTML=''; if(oldAlias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=oldAlias; cell.appendChild(span);} } btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); }
 </script></body></html>"""
@@ -876,7 +919,10 @@ class SettingsView(HomeAssistantView):
             dm = data.get('device_mgr')
             if dm:
                 try:
-                    dm.invalidate_sync_cache()
+                    if hasattr(dm, 'debounce_invalidate'):
+                        dm.debounce_invalidate()
+                    else:
+                        dm.invalidate_sync_cache()
                 except Exception:  # noqa: BLE001
                     pass
             # safe log (mask secrets)
@@ -967,7 +1013,10 @@ class AliasesView(HomeAssistantView):
             await store.async_save(aliases)
         if dm:
             try:
-                dm.invalidate_sync_cache()
+                if hasattr(dm, 'debounce_invalidate'):
+                    dm.debounce_invalidate()
+                else:
+                    dm.invalidate_sync_cache()
             except Exception:  # noqa: BLE001
                 pass
         log_val = '(cleared)' if removed else new_name
@@ -1019,6 +1068,12 @@ class StatusView(HomeAssistantView):
         # area coverage (by entity list)
         all_entities = list(self._dm.list_entities())
         with_area = sum(1 for e in all_entities if e in area_lookup)
+        stats = {}
+        try:
+            if hasattr(self._dm, 'latency_stats'):
+                stats = self._dm.latency_stats() or {}
+        except Exception:  # noqa: BLE001
+            stats = {}
         return web.json_response({
             "devices": total,
             "withAlias": with_alias,
@@ -1026,4 +1081,5 @@ class StatusView(HomeAssistantView):
             "roomHintApplied": with_roomhint,
             "roomHintEnabled": bool(settings.get('roomhint_enabled')),
             "cacheAgeMs": self._dm.sync_cache_age_ms(),
+            "latency": stats,
         })

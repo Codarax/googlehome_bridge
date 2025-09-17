@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.6.5] - 2025-09-17
+### Added
+- Latency statistieken: ringbuffers (laatste 50) voor SYNC / QUERY / EXECUTE; p50/p95/max + event loop lag sample zichtbaar via `/habridge/status` (key `latency`).
+- SmartHome endpoint registreert nu elke intent latency via `record_latency`.
+- Metrics sampler gestart bij initialisatie (periodieke event loop lag meting).
+
+### Changed
+- SYNC cache invalidatie gedebounced (1s) om burst rebuilds te verminderen bij snelle reeks wijzigingen (selecties, alias, settings).
+- Admin UI: header nu sticky net als filter toolbar (betere navigatie tijdens scrollen).
+- Status endpoint uitgebreid met `latency` object.
+
+### Internal
+- Nieuwe helpers in `device_manager`: `debounce_invalidate`, `record_latency`, `latency_stats`, `start_metrics`.
+- Alle directe `invalidate_sync_cache()` aanroepen vervangen door debounced variant (fallback wanneer attribuut niet bestaat).
+
+### Notes
+- Observeer komende dagen latency (QUERY / EXECUTE). Indien nog spikes: volgende stap is gerichte QUERY optimalisatie (alleen requested ids).
+- Matter QR integratie NIET geïmplementeerd; buiten scope & aanzienlijk complexer (commissioning, certificaten, clusters). OAuth pad blijft gebruikt en is eenvoudiger te beheren.
+
+### Safety / Performance Impact
+- Vermindert CPU pieken door herhaalde SYNC rebuilds bij bulk toggles of alias updates.
+- Biedt onderbouwde diagnose (p95) om echte vertraging (intern vs Google) te isoleren.
+
 ## [2.6.4] - 2025-09-17
 ### Fixed
 - Area filter in Devices view werkte niet (geen event listener + geen filterlogica); nu hersteld.

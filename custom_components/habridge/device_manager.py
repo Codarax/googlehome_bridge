@@ -42,10 +42,90 @@ class DeviceManager:
         self._sync_cache: list[dict] | None = None
         self._sync_cache_ts: float | None = None
         self._sync_cache_ttl = 8.0  # seconds
+        # Debounce invalidation
+        self._invalidate_handle = None
+        self._invalidate_delay = 1.0
+        # Latency metrics (simple ring buffers)
+        self._lat_sync = []  # ms samples
+        self._lat_exec = []
+        self._lat_query = []
+        self._lat_max = 100
+        # Event loop lag samples
+        self._lag_samples = []  # ms
+        self._lag_max = 120
+        self._lag_task = None
+
+    def start_metrics(self):
+        if self._lag_task is None:
+            self._lag_task = self.hass.loop.create_task(self._sample_loop_lag())
+
+    async def _sample_loop_lag(self):
+        import asyncio, time
+        interval = 1.0
+        last = time.perf_counter()
+        while True:
+            await asyncio.sleep(interval)
+            now = time.perf_counter()
+            drift = (now - last - interval) * 1000.0
+            last = now
+            if drift < 0:
+                drift = 0
+            self._lag_samples.append(drift)
+            if len(self._lag_samples) > self._lag_max:
+                self._lag_samples.pop(0)
+
+    def record_latency(self, kind: str, ms: float):
+        buf = None
+        if kind == 'sync':
+            buf = self._lat_sync
+        elif kind == 'exec':
+            buf = self._lat_exec
+        elif kind == 'query':
+            buf = self._lat_query
+        if buf is not None:
+            buf.append(ms)
+            if len(buf) > self._lat_max:
+                buf.pop(0)
+
+    def latency_stats(self):
+        def stats(arr):
+            if not arr:
+                return {"count":0}
+            s = sorted(arr)
+            import math
+            def pct(p):
+                if not s:
+                    return None
+                idx = int(math.ceil(p/100.0 * len(s))) -1
+                idx = max(0, min(idx, len(s)-1))
+                return s[idx]
+            return {"count":len(s),"p50":pct(50),"p95":pct(95),"max":s[-1]}
+        return {
+            "sync": stats(self._lat_sync),
+            "execute": stats(self._lat_exec),
+            "query": stats(self._lat_query),
+            "loopLagMs": stats(self._lag_samples),
+        }
 
     def invalidate_sync_cache(self):
+        # Immediate (legacy) path kept for direct forcing
         self._sync_cache = None
         self._sync_cache_ts = None
+
+    def debounce_invalidate(self):
+        # Schedule invalidate after short delay; collapse bursts
+        import asyncio
+        def do():
+            self.invalidate_sync_cache()
+        if self._invalidate_handle:
+            self._invalidate_handle.cancel()
+        async def later():
+            try:
+                await asyncio.sleep(self._invalidate_delay)
+                do()
+            except Exception:  # noqa: BLE001
+                pass
+        self._invalidate_handle = self.hass.loop.create_task(later())
 
     async def async_load(self):
         data = await self.store.async_load()
@@ -518,7 +598,7 @@ class DeviceManager:
     async def set_selection(self, entity_id: str, value: bool):
         self._selections[entity_id] = value
         await self.async_persist()
-        self.invalidate_sync_cache()
+        self.debounce_invalidate()
 
     async def bulk_update(self, updates: Dict[str, bool]):
         changed = False
@@ -533,4 +613,4 @@ class DeviceManager:
                 self._ensure_mapping(eid)
         if changed:
             await self.async_persist()
-            self.invalidate_sync_cache()
+            self.debounce_invalidate()
