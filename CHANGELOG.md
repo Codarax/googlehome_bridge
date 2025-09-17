@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.6.3] - 2025-09-17
+### Added / Changed
+- Alias search: zoekveld matcht nu ook op ingestelde alias.
+- Bulk acties: bevestiging voor Select All / Clear All.
+- Icons voor scene (🎬) en script (📜).
+- Script ActivateScene: fallback naar `script.run` wanneer `script.turn_on` niet beschikbaar of faalt.
+
+### Removed
+- Source kolom uit Devices UI (Area blijft zichtbaar, bron diagnostic verwijderd voor eenvoud).
+
+### Fixed / UX
+- Alias opslaan betrouwbaarder: pending alias zichtbaar tijdens save, refresh overschrijft alias niet meer.
+- Scene/script activatie betrouwbaarder door servicenaam fallback.
+
+### Notes
+- Functionaliteit verder identiek aan 2.6.2 behalve bovengenoemde UI & script verbeteringen.
+
 ## [2.6.2] - 2025-09-17
 ### Fixed
 - CI trigger gefaald voor 2.6.1 (tag mismatch / workflow). Nieuwe `v2.6.2` tag + versie bump zodat build & publish correct draaien.

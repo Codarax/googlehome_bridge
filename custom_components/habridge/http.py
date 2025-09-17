@@ -326,7 +326,7 @@ button:hover{background:#f0f3f5;}
                 <button onclick='bulk(false)'>Clear All</button>
             </div>
         </div>
-    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Alias</th><th>Area</th><th>Source</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th><th style='width:70px;'>Edit</th></tr></thead><tbody></tbody></table>
+    <table id='tbl'><thead><tr><th style='width:34px;'>#</th><th>Stable ID</th><th>Name</th><th>Alias</th><th>Area</th><th>Domain</th><th>Value</th><th style='width:90px;'>Selected</th><th style='width:70px;'>Edit</th></tr></thead><tbody></tbody></table>
     </div>
     <div id="view-logs" style="display:none;">
         <div class='toolbar'>
@@ -378,7 +378,8 @@ button:hover{background:#f0f3f5;}
 const urlParams=new URLSearchParams(window.location.search);const ADMIN_TOKEN=urlParams.get('token');
 let _rows=[];let _filtered=[];let _domainSet=new Set();
 let _aliasEditing=false; // block device list refresh while editing alias
-const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟'};
+let _pendingAliasSaves={}; // sid -> alias while saving
+const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟',scene:'🎬',script:'📜'};
 let _logs=[];let _logTimer=null;let _devTimer=null;
 let _pendingSelections={}; // id -> desired state
 let _pendingLocks={}; // id -> lock until timestamp (ms)
@@ -428,7 +429,13 @@ async function refreshDevicesValue(){
         if(_pendingSelections.hasOwnProperty(d.id) && _pendingLocks[d.id] && _pendingLocks[d.id] > now){
             return { ...d, selected: _pendingSelections[d.id] };
         }
-        return { ...d, selected: (_pendingSelections.hasOwnProperty(d.id)? _pendingSelections[d.id] : d.selected ) };
+        // Preserve pending alias save display if server not yet updated
+        let aliasOverride = undefined;
+        const sid = d.stable_id || d.id;
+        if(_pendingAliasSaves[sid] !== undefined){ aliasOverride = _pendingAliasSaves[sid]; }
+        const base = { ...d, selected: (_pendingSelections.hasOwnProperty(d.id)? _pendingSelections[d.id] : d.selected ) };
+        if(aliasOverride !== undefined){ base.alias = aliasOverride; }
+        return base;
     });
     _domainSet=new Set(_rows.map(r=>r.domain));
     populateDomainFilter();
@@ -448,7 +455,7 @@ function filter(){
         if(domainF && r.domain!==domainF) return false;
         if(!isDomainVisible(r.domain)) return false;
         if(!q) return true;
-        const target=[r.stable_id||'', r.id||'', r.name||'', r.domain||'', r.value||''].join(' ').toLowerCase();
+    const target=[r.stable_id||'', r.id||'', r.name||'', (r.alias||''), r.domain||'', r.value||''].join(' ').toLowerCase();
         return target.includes(q);
     });
     render();
@@ -457,7 +464,7 @@ function render(){
     const tb=document.querySelector('#tbl tbody');tb.innerHTML='';
     if(!_filtered.length){
         const tr=document.createElement('tr');
-        const td=document.createElement('td');td.colSpan=10;td.className='empty';td.textContent='No devices match filters';
+    const td=document.createElement('td');td.colSpan=9;td.className='empty';td.textContent='No devices match filters';
         tr.appendChild(td);tb.appendChild(tr);
     } else {
         _filtered.forEach((r,idx)=>{
@@ -466,16 +473,13 @@ function render(){
             const aliasCell = (r.alias && r.alias.length) ? `<span class='alias-text' title="Alias for ${r.orig_name.replace(/"/g,'&quot;')}">${r.alias}</span>` : '';
             const colorBadge = r.has_color ? `<span style='display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:6px;vertical-align:middle;background:${r.color_preview?('#'+('000000'+r.color_preview.toString(16)).slice(-6)):'#f5c542'};border:1px solid #ccc;' title='Color capable light'></span>` : '';
             let areaTitle='';
-            let areaDisplay = r.area||''; const src = r.area_source;
-            if(r.area){ areaTitle = src? ('Area source: '+src):''; }
-            else if(src===undefined || src===null){ areaDisplay=''; }
-            else if(!r.area){ areaDisplay='—'; areaTitle='No area mapping found (assign in HA)'; }
+            let areaDisplay = r.area||'';
+            if(!r.area){ areaDisplay=''; }
             tr.innerHTML=`<td>${idx+1}</td>
                 <td title="${r.id}">${r.stable_id||r.id}</td>
                 <td class='nm'><span class='domain-icon'>${icon}</span><span class='orig-name'>${r.name||''}</span>${colorBadge}</td>
                 <td class='alias-col'>${aliasCell}</td>
                 <td ${areaTitle?`title='${areaTitle.replace(/'/g,"&#39;")}'`:''}>${areaDisplay}</td>
-                <td>${src||''}</td>
                 <td>${r.domain}</td>
                 <td class='value-col'>${r.value||''}</td>
                 <td style='text-align:center;'><label class='tgl'><input type='checkbox' data-id='${r.id}' ${r.selected?'checked':''} onchange='toggleDevice("${r.id}",this.checked)'><span></span></label></td>
@@ -507,6 +511,10 @@ async function toggleDevice(id,val){
     }
 }
 async function bulk(val){
+    const actionLabel = val ? 'Select ALL' : 'Clear ALL';
+    const affected = _filtered.length;
+    if(affected===0) return;
+    if(!confirm(`${actionLabel} (${affected} devices)?`)) return;
     const ups={};
     const now=Date.now();
     _filtered.forEach(r=>{ups[r.id]=val; _pendingSelections[r.id]=val; _pendingLocks[r.id]=now+4000;});
@@ -632,13 +640,13 @@ async function startRename(eid, sid, btn){
 async function finishRename(eid, sid, input, btn, oldAlias){
     const raw = input.value; // preserve spaces; empty clears
     const payload = {id:sid, alias: raw};
-    btn.disabled=true; try{
+    btn.disabled=true; _pendingAliasSaves[sid]=raw; try{
         const r=await fetch('/habridge/aliases?token='+encodeURIComponent(ADMIN_TOKEN),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         if(r.ok){ const data=await r.json(); const aliasCell=input.parentElement; if(aliasCell){ aliasCell.innerHTML=''; if(data.alias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=data.alias; aliasCell.appendChild(span);} }
             btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); refreshDevicesValue(); }
         else { throw new Error('HTTP '+r.status); }
     }catch(e){ cancelRename(eid,sid,input,btn,oldAlias); }
-    finally { btn.disabled=false; _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); }
+    finally { delete _pendingAliasSaves[sid]; btn.disabled=false; _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); }
 }
 function cancelRename(eid,sid,input,btn,oldAlias){ const cell=input.parentElement; if(cell){ cell.innerHTML=''; if(oldAlias){ const span=document.createElement('span'); span.className='alias-text'; span.textContent=oldAlias; cell.appendChild(span);} } btn.textContent='Rename'; btn.onclick=( )=>startRename(eid,sid,btn); _aliasEditing=false; if(_backgroundUpdates) startDevTimer(); }
 </script></body></html>"""

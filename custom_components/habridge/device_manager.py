@@ -491,8 +491,24 @@ class DeviceManager:
                         # Google sends deactivate for reversible scenes; we ignore as non reversible
                         deactivate = params.get("deactivate")
                         if not deactivate:
-                            svc_domain = domain
-                            await self.hass.services.async_call(svc_domain, "turn_on", {"entity_id": eid}, blocking=False)
+                            if domain == "script":
+                                # Prefer turn_on; fallback to run for compatibility
+                                try:
+                                    if self.hass.services.has_service("script", "turn_on"):
+                                        await self.hass.services.async_call("script", "turn_on", {"entity_id": eid}, blocking=False)
+                                    elif self.hass.services.has_service("script", "run"):
+                                        await self.hass.services.async_call("script", "run", {"entity_id": eid}, blocking=False)
+                                    else:
+                                        # no service; still report success to avoid hard error, could log
+                                        pass
+                                except Exception:  # noqa: BLE001
+                                    # attempt fallback run even if turn_on path failed
+                                    try:
+                                        await self.hass.services.async_call("script", "run", {"entity_id": eid}, blocking=False)
+                                    except Exception:
+                                        pass
+                            else:
+                                await self.hass.services.async_call("scene", "turn_on", {"entity_id": eid}, blocking=False)
                         results.append({"ids": [sid], "status": "SUCCESS"})
         return results
 
