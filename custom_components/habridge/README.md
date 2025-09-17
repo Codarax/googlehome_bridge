@@ -24,6 +24,11 @@ Eenvoudige Google Home (Google Smart Home) bridge zonder aparte poort, reverse p
 4. Na afronden verschijnt het zijbalk panel "HA Bridge" voor device selectie.
 5. Opties wijzigen? Ga naar de integratie → "Opties".
 
+### Repository URL (handig voor HACS custom repository)
+- GitHub repository: `https://github.com/Codarax/googlehome_bridge`
+- HACS: Ga naar HACS → Integrations → (⋮) Custom repositories → voeg bovenstaande URL toe met type `Integration`, daarna zoek op "HA Bridge" en installeer.
+
+
 ## Google Cloud Console / Action Linking
 Gebruik exact deze externe HTTPS URLs (vervang je domein):
 - Authorization URL: `https://<jouw_domein>/habridge/oauth`

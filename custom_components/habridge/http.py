@@ -85,12 +85,22 @@ class SmartHomeView(HomeAssistantView):
 
     async def post(self, request):
         logger = logging.getLogger(__name__)
+        # Lees eerst raw bytes zodat we bij parse error kunnen loggen wat er echt binnenkwam
+        raw_bytes = await request.read()
         try:
-            body = await request.json()
+            # Probeer directe json.loads voor meer controle / fout logging
+            body = json.loads(raw_bytes.decode('utf-8', errors='replace'))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("habridge: invalid JSON body on smarthome endpoint (%s)", exc)
+            preview = raw_bytes[:200]
+            logger.warning("habridge: invalid JSON body (%s) raw=%r", exc, preview)
+            self._push_log("ERROR", f"invalid_json len={len(raw_bytes)}")
             return web.json_response({"requestId": "invalid", "payload": {"errorCode": "protocolError"}}, status=400)
-        intent = body.get("inputs", [{}])[0].get("intent")
+        inputs = body.get("inputs") if isinstance(body, dict) else None
+        if not inputs or not isinstance(inputs, list) or not inputs:
+            logger.warning("habridge: malformed body missing inputs key: %s", body)
+            self._push_log("ERROR", "malformed_payload_no_inputs")
+            return web.json_response({"requestId": body.get("requestId", "invalid"), "payload": {"errorCode": "protocolError"}}, status=400)
+        intent = inputs[0].get("intent")
         request_id = body.get("requestId", "req")
         logger.debug("habridge: intent=%s requestId=%s raw=%s", intent, request_id, body)
         try:
@@ -167,7 +177,12 @@ class SmartHomeView(HomeAssistantView):
                 self._push_log("QUERY", f"devices={len(devices)}", request_id)
                 return web.json_response({"requestId": request_id, "payload": {"devices": devices}})
             if intent == "action.devices.EXECUTE":
-                commands = body.get("inputs", [{}])[0].get("payload", {}).get("commands", [])
+                raw_group = inputs[0].get("payload", {}) if isinstance(inputs[0], dict) else {}
+                commands = raw_group.get("commands", []) if isinstance(raw_group, dict) else []
+                if not isinstance(commands, list):
+                    logger.warning("habridge: EXECUTE malformed commands structure: %s", commands)
+                    self._push_log("ERROR", "EXECUTE malformed commands struct")
+                    return web.json_response({"requestId": request_id, "payload": {"errorCode": "protocolError"}}, status=400)
                 results = await self.device_mgr.execute(commands)
                 # Build detailed log: list every execution with entity + command
                 detail_parts = []

@@ -1,6 +1,16 @@
 # Changelog
 
 ## [2.4.1] - 2025-09-13
+## [2.4.2] - 2025-09-17
+### Added / Diagnostics
+- SmartHome endpoint: raw body validation & expliciete logging bij malformed JSON of ontbrekende `inputs`.
+- EXECUTE: stricte commands-structuur validatie + foutmelding bij protocolError.
+- Log buffer krijgt ERROR entries `invalid_json`, `malformed_payload_no_inputs`, `EXECUTE malformed commands struct` voor snellere debug.
+### Changed
+- JSON parsing gebruikt nu handmatige decode en behoudt raw preview bij fouten.
+### Notes
+- Huidige `protocolError` bij SYNC test was veroorzaakt door malformed of leeg request body; na deploy 2.4.2 zullen logs exact aangeven wat er ontbrak.
+
 ### Fixed / Changed
 - Climate: apparaat type dynamisch AC_UNIT wanneer fan_modes aanwezig → Google herkent FanSpeed beter.
 - Climate: OnOff trait toegevoegd zodat "zet airco uit / aan" werkt (EXECUTE omzet naar hvac_mode off of herstelt/kiest geschikte modus).
