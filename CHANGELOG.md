@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1] - 2025-09-17
+### Fixed
+- Corrigeert release: 2.6.0 tag wees naar commit zonder wijzigingen (scenes/scripts + UI kolommen). 2.6.1 verwijst nu naar juiste code.
+
+### Notes
+- Functiewijzigingen identiek aan 2.6.0; alleen herpublicatie met correcte pointer.
+
 ## [2.6.0] - 2025-09-17
 ### Added
 - Scene & Script ondersteuning: beide exposed als Google `SCENE` met `Scene` trait. Spraak: "Hey Google, activeer <naam>" (alias ook geldig). Scripts gebruiken eveneens ActivateScene (stateless).
