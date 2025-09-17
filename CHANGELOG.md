@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.2] - 2025-09-17
+### Fixed
+- CI trigger gefaald voor 2.6.1 (tag mismatch / workflow). Nieuwe `v2.6.2` tag + versie bump zodat build & publish correct draaien.
+
+### Changed
+- Alleen versie/CI correctie; functionaliteit identiek aan 2.6.0 (scenes/scripts + UI uitbreidingen).
+
 ## [2.6.1] - 2025-09-17
 ### Fixed
 - Corrigeert release: 2.6.0 tag wees naar commit zonder wijzigingen (scenes/scripts + UI kolommen). 2.6.1 verwijst nu naar juiste code.
