@@ -215,7 +215,11 @@ class DeviceManager:
         aliases = {}
         try:
             if domain_data:
-                aliases = domain_data.get('aliases') or {}
+                aliases_ref = domain_data.get('aliases')
+                if aliases_ref is None:
+                    aliases_ref = {}
+                    domain_data['aliases'] = aliases_ref
+                aliases = aliases_ref
         except Exception:  # noqa: BLE001
             aliases = {}
         area_lookup = None

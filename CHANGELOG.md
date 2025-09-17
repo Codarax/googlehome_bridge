@@ -1,5 +1,12 @@
 # Changelog
 
+# [2.6.6] - 2025-09-17
+### Fixed
+- Alias persist bug: lege alias dictionary werd door `or {}` telkens vervangen waardoor nieuwe aliases niet in Devices view verschenen tot herstart.
+
+### Notes
+- Aliases worden nu direct zichtbaar na opslaan; geen extra refresh nodig.
+
 ## [2.6.5] - 2025-09-17
 ### Added
 - Latency statistieken: ringbuffers (laatste 50) voor SYNC / QUERY / EXECUTE; p50/p95/max + event loop lag sample zichtbaar via `/habridge/status` (key `latency`).

@@ -734,7 +734,10 @@ class DevicesView(HomeAssistantView):
         if supplied != self._token:
             return web.json_response({"error": "unauthorized"}, status=401)
         data = self.hass.data.get('habridge') or {}
-        aliases = data.get('aliases') or {}
+        aliases = data.get('aliases')
+        if aliases is None:
+            aliases = {}
+            data['aliases'] = aliases
         # Unified area lookup with fallback + optional debug
         debug = request.query.get('debug') == '1'
         area_lookup = {}
@@ -973,7 +976,10 @@ class AliasesView(HomeAssistantView):
         if supplied != self._token:
             return web.json_response({"error": "unauthorized"}, status=401)
         data = self.hass.data.get('habridge') or {}
-        aliases = data.get('aliases') or {}
+        aliases = data.get('aliases')
+        if aliases is None:
+            aliases = {}
+            data['aliases'] = aliases
         return web.json_response({"aliases": aliases})
 
     async def post(self, request):
@@ -993,7 +999,10 @@ class AliasesView(HomeAssistantView):
         if not isinstance(new_name, str):
             return web.json_response({"error": "alias_not_string"}, status=400)
         data = self.hass.data.get('habridge') or {}
-        aliases = data.get('aliases') or {}
+        aliases = data.get('aliases')
+        if aliases is None:
+            aliases = {}
+            data['aliases'] = aliases
         dm = data.get('device_mgr')
         if dm and sid in getattr(dm, '_entity_to_stable', {}):  # raw entity id provided
             sid_key = dm._entity_to_stable.get(sid)
