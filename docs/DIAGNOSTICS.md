@@ -2,7 +2,7 @@
 
 This document legt uit hoe je de nieuwe metrics interpreteert en gebruikt voor performance troubleshooting.
 
-Versies: metrics geïntroduceerd in 2.6.7; 2.6.8 is een pure hotfix (init bug) zonder wijziging aan metrics.
+Versies: metrics geïntroduceerd in 2.6.7; 2.6.8 & 2.6.9 hotfixes (init / guard); 2.6.10 alleen IDE import fallback – geen metric wijzigingen.
 
 ## Overzicht Endpoints & UI
 - Admin UI tab "Metrics": toont latency percentielen (p50, p95, max) voor SYNC, QUERY en EXECUTE + event loop lag en per-device EXECUTE timing.

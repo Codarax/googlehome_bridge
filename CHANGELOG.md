@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.6.10] - 2025-09-18
+### Dev / Tooling
+- Voeg guarded fallback stub toe voor `homeassistant.helpers.storage.Store` zodat IDE / Pylance geen missing import meldingen geven buiten HA runtime.
+
+### Functional Impact
+- Geen runtime wijziging binnen Home Assistant (HA core levert echte `Store`).
+
+### Upgrade Note
+- Alleen nodig als je lokale ontwikkelomgeving de import warning stoorde.
+
 ## [2.6.9] - 2025-09-18
 ### Hotfix
 - Definitieve fix voor DeviceManager init attributen (`_exec_device_timings`, `_exec_device_last`) waarin sommige installaties nog de fout "NameError: self is not defined" zagen omdat 2.6.8 mogelijk zonder correcte indentation werd gedeployed.

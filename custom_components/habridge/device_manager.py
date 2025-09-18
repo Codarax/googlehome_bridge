@@ -1,7 +1,17 @@
 from __future__ import annotations
 from typing import Dict, List
 import re
-from homeassistant.helpers.storage import Store
+try:
+    from homeassistant.helpers.storage import Store  # type: ignore
+except Exception:  # noqa: BLE001
+    # Dev / lint fallback: minimal Store stub so type checkers stop complaining outside HA runtime
+    class Store:  # type: ignore
+        def __init__(self, hass=None, version=1, key=""):
+            self._data = None
+        async def async_load(self):  # noqa: D401
+            return self._data
+        async def async_save(self, data):  # noqa: D401
+            self._data = data
 
 from .const import DEFAULT_EXPOSE, STORAGE_IDMAP
 
@@ -54,11 +64,12 @@ class DeviceManager:
         self._lag_samples = []  # ms
         self._lag_max = 120
         self._lag_task = None
-    # Per-device EXECUTE timing (recent durations ms)
-    self._exec_device_timings = {}
-    self._exec_device_last = {}
+        # Per-device EXECUTE timing (recent durations ms)
+        self._exec_device_timings = {}
+        self._exec_device_last = {}
 
     def start_metrics(self):
+        self._ensure_exec_metrics()
         if self._lag_task is None:
             self._lag_task = self.hass.loop.create_task(self._sample_loop_lag())
 
@@ -463,6 +474,7 @@ class DeviceManager:
 
     async def execute(self, commands):
         import asyncio
+        self._ensure_exec_metrics()
         results = []
         service_calls = []  # list of (sid, coroutine)
         sid_tracking = []   # parallel list of stable id for each coroutine
@@ -637,6 +649,7 @@ class DeviceManager:
     def exec_device_stats(self):
         """Return per-device execute timing stats (last, p50, p95, max)."""
         import math
+        self._ensure_exec_metrics()
         out = {}
         for sid, arr in self._exec_device_timings.items():
             if not arr:
@@ -655,6 +668,13 @@ class DeviceManager:
                 "max": s[-1],
             }
         return out
+
+    def _ensure_exec_metrics(self):
+        # Defensive: create attrs if missing (older cached module / partial deploy)
+        if not hasattr(self, '_exec_device_timings'):
+            self._exec_device_timings = {}
+        if not hasattr(self, '_exec_device_last'):
+            self._exec_device_last = {}
 
     def get_selection_map(self) -> Dict[str, bool]:
         return {eid: self._selections.get(eid, False) for eid in self.list_entities()}
