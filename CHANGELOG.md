@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.9] - 2025-09-18
+### Hotfix
+- Definitieve fix voor DeviceManager init attributen (`_exec_device_timings`, `_exec_device_last`) waarin sommige installaties nog de fout "NameError: self is not defined" zagen omdat 2.6.8 mogelijk zonder correcte indentation werd gedeployed.
+- Geen verdere codewijzigingen (metrics identiek aan 2.6.7/2.6.8).
+
+### Advies
+- Upgrade wanneer je de NameError tijdens toevoegen van de integratie zag.
+
 ## [2.6.8] - 2025-09-18
 ### Hotfix / Stability
 - Herstelt `DeviceManager` init NameError (per-device EXECUTE timing dicts stonden buiten `__init__`).
