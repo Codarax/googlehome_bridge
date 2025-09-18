@@ -127,13 +127,42 @@ class SmartHomeView(HomeAssistantView):
                     pass
                 return web.json_response({"requestId": request_id, "payload": {"agentUserId": "user", "devices": devices}})
             if intent == "action.devices.QUERY":
+                q_parse_start = _t.perf_counter()
+                # Determine requested stable ids (Google passes either ids or device objects)
+                requested_ids = set()
+                try:
+                    payload = inputs[0].get("payload", {}) if isinstance(inputs[0], dict) else {}
+                    devs = payload.get("devices", []) if isinstance(payload, dict) else []
+                    for d in devs:
+                        if isinstance(d, dict):
+                            rid = d.get("id") or d.get("deviceId")
+                            if rid:
+                                requested_ids.add(rid)
+                except Exception:  # noqa: BLE001
+                    requested_ids = set()
+                selected_eids = list(self.device_mgr.selected())
+                # Map stable id -> entity id for quick filter
+                sid_to_eid = {}
+                for eid in selected_eids:
+                    sid_to_eid[self.device_mgr.stable_id(eid)] = eid
+                target_pairs = []
+                if requested_ids:
+                    for sid in requested_ids:
+                        eid = sid_to_eid.get(sid)
+                        if eid:
+                            target_pairs.append((sid, eid))
+                else:
+                    # fallback: old behavior (all selected)
+                    for eid in selected_eids:
+                        sid = self.device_mgr.stable_id(eid)
+                        target_pairs.append((sid, eid))
                 devices = {}
-                for eid in self.device_mgr.selected():
+                build_start = _t.perf_counter()
+                for sid, eid in target_pairs:
                     st = self.hass.states.get(eid)
                     if not st:
                         continue
                     domain = st.domain
-                    sid = self.device_mgr.stable_id(eid)
                     if domain in ("switch", "light"):
                         resp = {"on": st.state == "on", "online": True}
                         if domain == "light" and st.attributes.get("brightness") is not None:
@@ -144,7 +173,6 @@ class SmartHomeView(HomeAssistantView):
                             except Exception:  # noqa: BLE001
                                 pass
                         if domain == "light":
-                            # Color reporting
                             rgb = st.attributes.get("rgb_color")
                             hs = st.attributes.get("hs_color")
                             ct = st.attributes.get("color_temp")
@@ -157,12 +185,10 @@ class SmartHomeView(HomeAssistantView):
                                 except Exception:  # noqa: BLE001
                                     pass
                             elif hs and isinstance(hs,(list,tuple)) and len(hs)==2:
-                                # convert hs to approximate RGB using HA util if desired (skip – minimal)
                                 pass
                             if ct and isinstance(ct,(int,float)) and ct>0:
                                 try:
                                     k = int(round(1000000/ct))
-                                    # Provide temperatureK only if no RGB present or both supported
                                     cur["temperatureK"] = k
                                 except Exception:  # noqa: BLE001
                                     pass
@@ -205,26 +231,22 @@ class SmartHomeView(HomeAssistantView):
                                 val = float(st.state)
                             except Exception:  # noqa: BLE001
                                 continue
-                            devices[sid] = {
-                                "online": True,
-                                "thermostatMode": "off",
-                                "thermostatTemperatureAmbient": val,
-                            }
+                            devices[sid] = {"online": True, "thermostatMode": "off", "thermostatTemperatureAmbient": val}
                         elif dclass == "humidity":
                             try:
                                 val = float(st.state)
                             except Exception:  # noqa: BLE001
                                 continue
-                            devices[sid] = {
-                                "online": True,
-                                "humidityAmbientPercent": val,
-                            }
-                logger.debug("habridge: QUERY devices=%d", len(devices))
-                self._push_log("QUERY", f"devices={len(devices)}", request_id)
-                dt = int(( _t.perf_counter() - t_start)*1000)
-                self._push_log("QUERY", f"count={len(devices)} timeMs={dt}", request_id)
+                            devices[sid] = {"online": True, "humidityAmbientPercent": val}
+                build_end = _t.perf_counter()
+                filtered = len(target_pairs)
+                logger.debug("habridge: QUERY devices=%d requested=%d selected=%d", len(devices), len(requested_ids) or filtered, len(selected_eids))
+                parse_ms = int((q_parse_start - t_start)*1000)
+                build_ms = int((build_end - build_start)*1000)
+                total_ms = int(( _t.perf_counter() - t_start)*1000)
+                self._push_log("QUERY", f"devices={len(devices)} req={len(requested_ids) or 0} sel={len(selected_eids)} parseMs={parse_ms} buildMs={build_ms} timeMs={total_ms}", request_id)
                 try:
-                    self.device_mgr.record_latency('query', dt)
+                    self.device_mgr.record_latency('query', total_ms)
                 except Exception:  # noqa: BLE001
                     pass
                 return web.json_response({"requestId": request_id, "payload": {"devices": devices}})
@@ -338,6 +360,7 @@ button:hover{background:#f0f3f5;}
     <nav>
         <a href="#" class="active" onclick="showView('devices');return false;">Devices</a>
         <a href="#" onclick="showView('logs');return false;">Logs</a>
+        <a href="#" onclick="showView('metrics');return false;">Metrics</a>
         <a href="#" onclick="showView('settings');return false;">Settings</a>
     </nav>
     <span id="counts" class="pill"></span>
@@ -362,6 +385,28 @@ button:hover{background:#f0f3f5;}
             <button onclick='clearLogs()'>Clear</button>
         </div>
     <table id='logtbl'><thead><tr><th style='width:40px;'>#</th><th style='width:95px;'>Date</th><th style='width:80px;'>Time</th><th style='width:90px;'>ReqID</th><th style='width:90px;'>Intent</th><th>Detail</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div id="view-metrics" style="display:none;max-width:960px;">
+        <h3>Metrics</h3>
+        <div style='display:flex;flex-wrap:wrap;gap:16px;'>
+            <div style='flex:1;min-width:260px;background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:12px;'>
+                <h4 style='margin:0 0 8px 0;font-size:14px;'>Latency (ms)</h4>
+                <table style='width:100%;border-collapse:collapse;font-size:12px;'>
+                    <thead><tr><th style='text-align:left;'>Kind</th><th>Count</th><th>p50</th><th>p95</th><th>Max</th></tr></thead>
+                    <tbody id='latRows'></tbody>
+                </table>
+                <div id='loopLag' class='muted' style='margin-top:6px;font-size:11px;'></div>
+                <div id='cacheAge' class='muted' style='margin-top:4px;font-size:11px;'></div>
+            </div>
+            <div style='flex:2;min-width:320px;background:#fff;border:1px solid #d9dee3;border-radius:6px;padding:12px;max-height:320px;overflow:auto;'>
+                <h4 style='margin:0 0 8px 0;font-size:14px;'>Per-Device EXECUTE Timing (ms)</h4>
+                <table style='width:100%;border-collapse:collapse;font-size:12px;'>
+                    <thead><tr><th style='text-align:left;'>Stable ID</th><th>Count</th><th>Last</th><th>p50</th><th>p95</th><th>Max</th></tr></thead>
+                    <tbody id='execDevRows'></tbody>
+                </table>
+            </div>
+        </div>
+        <div class='muted' style='margin-top:12px;font-size:12px;'>Automatisch verversen elke 5s terwijl dit tabblad zichtbaar is.</div>
     </div>
     <div id="view-settings" style="display:none;max-width:760px;">
         <h3>Settings</h3>
@@ -408,7 +453,7 @@ let _rows=[];let _filtered=[];let _domainSet=new Set();
 let _aliasEditing=false; // block device list refresh while editing alias
 let _pendingAliasSaves={}; // sid -> alias while saving
 const icons={switch:'⏻',light:'💡',climate:'🌡️',sensor:'📟',scene:'🎬',script:'📜'};
-let _logs=[];let _logTimer=null;let _devTimer=null;
+let _logs=[];let _logTimer=null;let _devTimer=null;let _metricsTimer=null;
 let _pendingSelections={}; // id -> desired state
 let _pendingLocks={}; // id -> lock until timestamp (ms)
 let _backgroundUpdates=true; // default aan; kan via settings uit
@@ -419,12 +464,14 @@ document.getElementById('domainFilter').addEventListener('change',filter);
 document.getElementById('onlySel').addEventListener('change',filter);
 const areaFilterEl = document.getElementById('areaFilter'); if(areaFilterEl) areaFilterEl.addEventListener('change',filter);
 function showView(v){
-    ['devices','logs','settings'].forEach(x=>document.getElementById('view-'+x).style.display=x===v?'block':'none');
+    ['devices','logs','metrics','settings'].forEach(x=>{ const el=document.getElementById('view-'+x); if(el) el.style.display=x===v?'block':'none'; });
     document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
-    document.querySelectorAll('nav a')[v==='devices'?0:(v==='logs'?1:2)].classList.add('active');
-    if(v==='logs'){refreshLogs(); startLogTimer(); stopDevTimer();}
-    else if(v==='devices'){refreshDevicesValue(); if(_backgroundUpdates) startDevTimer(); stopLogTimer();}
-    else {stopLogTimer(); stopDevTimer();}
+    const order=['devices','logs','metrics','settings'];
+    const idx=order.indexOf(v); if(idx>=0) document.querySelectorAll('nav a')[idx].classList.add('active');
+    if(v==='logs'){refreshLogs(); startLogTimer(); stopDevTimer(); stopMetricsTimer();}
+    else if(v==='devices'){refreshDevicesValue(); if(_backgroundUpdates) startDevTimer(); stopLogTimer(); stopMetricsTimer();}
+    else if(v==='metrics'){ loadMetrics(); startMetricsTimer(); stopLogTimer(); stopDevTimer(); }
+    else {stopLogTimer(); stopDevTimer(); stopMetricsTimer();}
 }
 async function loadSettings(){
     try{
@@ -585,6 +632,8 @@ function startLogTimer(){ if(_logTimer) return; _logTimer=setInterval(refreshLog
 function stopLogTimer(){ if(_logTimer){clearInterval(_logTimer); _logTimer=null;} }
 function startDevTimer(){ if(_devTimer) return; _devTimer=setInterval(()=>{ if(document.hidden) return; refreshDevicesValue(); },10000); }
 function stopDevTimer(){ if(_devTimer){clearInterval(_devTimer); _devTimer=null;} }
+function startMetricsTimer(){ if(_metricsTimer) return; _metricsTimer=setInterval(()=>{ if(document.hidden) return; loadMetrics(); },5000); }
+function stopMetricsTimer(){ if(_metricsTimer){ clearInterval(_metricsTimer); _metricsTimer=null; } }
 async function showSyncPreview(){
     const pre=document.getElementById('syncPreview');
     if(pre.style.display==='none'){
@@ -657,6 +706,17 @@ load();
 loadSettings();
 // Also fetch initial sync preview silently to compute roomHint badge
 (async()=>{try{const r=await fetch('/habridge/sync_preview?token='+encodeURIComponent(ADMIN_TOKEN)); if(r.ok){const data=await r.json(); const devices=data.devices||[]; const rh=devices.filter(d=>d.roomHint).length; updateRoomHintBadge(rh, devices.length);} }catch(e){}})();
+
+async function loadMetrics(){
+    try{
+        const r=await fetch('/habridge/status?token='+encodeURIComponent(ADMIN_TOKEN));
+        if(!r.ok) return; const data=await r.json();
+        const lat=data.latency||{}; const tb=document.getElementById('latRows'); if(tb){ tb.innerHTML=''; ['sync','query','execute'].forEach(k=>{ const st=lat[k]||{}; const tr=document.createElement('tr'); tr.innerHTML=`<td>${k}</td><td>${st.count||0}</td><td>${st.p50||'-'}</td><td>${st.p95||'-'}</td><td>${st.max||'-'}</td>`; tb.appendChild(tr); }); }
+        const lag=lat.loopLagMs||{}; const lagEl=document.getElementById('loopLag'); if(lagEl){ lagEl.textContent=`Loop lag p95=${lag.p95||'-'}ms max=${lag.max||'-'}ms (n=${lag.count||0})`; }
+        const cacheEl=document.getElementById('cacheAge'); if(cacheEl){ cacheEl.textContent=`SYNC cache age: ${data.cacheAgeMs!=null?data.cacheAgeMs+'ms':'(none)'}`; }
+        const execStats=data.execDeviceStats||{}; const devTb=document.getElementById('execDevRows'); if(devTb){ devTb.innerHTML=''; const entries=Object.entries(execStats).sort((a,b)=> (b[1].p95||0)-(a[1].p95||0)); entries.slice(0,80).forEach(([sid,st])=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${sid}</td><td>${st.count||0}</td><td>${st.last||'-'}</td><td>${st.p50||'-'}</td><td>${st.p95||'-'}</td><td>${st.max||'-'}</td>`; devTb.appendChild(tr); }); }
+    }catch(e){}
+}
 
 async function startRename(eid, sid, btn){
     const row = btn.closest('tr'); if(!row) return; const aliasCell=row.querySelector('.alias-col'); if(!aliasCell) return;
@@ -1091,4 +1151,5 @@ class StatusView(HomeAssistantView):
             "roomHintEnabled": bool(settings.get('roomhint_enabled')),
             "cacheAgeMs": self._dm.sync_cache_age_ms(),
             "latency": stats,
+            "execDeviceStats": getattr(self._dm, 'exec_device_stats', lambda: {})(),
         })

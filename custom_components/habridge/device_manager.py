@@ -54,6 +54,9 @@ class DeviceManager:
         self._lag_samples = []  # ms
         self._lag_max = 120
         self._lag_task = None
+    # Per-device EXECUTE timing (recent durations ms)
+    self._exec_device_timings = {}
+    self._exec_device_last = {}
 
     def start_metrics(self):
         if self._lag_task is None:
@@ -459,75 +462,81 @@ class DeviceManager:
         return int((time.time() - self._sync_cache_ts) * 1000)
 
     async def execute(self, commands):
+        import asyncio
         results = []
+        service_calls = []  # list of (sid, coroutine)
+        sid_tracking = []   # parallel list of stable id for each coroutine
         for cmd in commands:
-            for device in cmd.get("devices", []):
-                sid = device.get("id")
+            exec_list = cmd.get("execution", [])
+            devices = cmd.get("devices", [])
+            if not isinstance(exec_list, list) or not isinstance(devices, list):
+                continue
+            for device in devices:
+                sid = device.get("id") if isinstance(device, dict) else None
                 if not sid:
                     continue
                 eid = self.resolve_entity(sid) or sid
                 state = self.hass.states.get(eid)
                 if not state:
-                    # state ontbreekt → log en skip
-                    try:
-                        self.hass.logger().info("habridge: EXECUTE skip %s no state", eid)
-                    except Exception:  # noqa: BLE001
-                        pass
                     continue
                 domain = state.domain
-                for exec_cmd in cmd.get("execution", []):
+                for exec_cmd in exec_list:
+                    if not isinstance(exec_cmd, dict):
+                        continue
                     ctype = exec_cmd.get("command")
-                    params = exec_cmd.get("params", {})
+                    params = exec_cmd.get("params", {}) or {}
+                    # Build coroutine per action
                     if ctype == "action.devices.commands.OnOff" and domain in ("switch", "light"):
                         turn_on = params.get("on")
-                        await self.hass.services.async_call(domain, f"turn_{'on' if turn_on else 'off'}", {"entity_id": eid}, blocking=False)
-                        results.append({"ids": [sid], "status": "SUCCESS"})
+                        async def _do(eid=eid, domain=domain, turn_on=turn_on):
+                            await self.hass.services.async_call(domain, f"turn_{'on' if turn_on else 'off'}", {"entity_id": eid}, blocking=True)
+                        service_calls.append((sid, _do()))
+                        sid_tracking.append(sid)
                     elif ctype == "action.devices.commands.OnOff" and domain == "climate":
                         turn_on = params.get("on")
-                        if turn_on:
-                            # Kies een werkbare modus (voorkeur huidige indien niet off, anders heat_cool/auto/heat)
-                            cur = state.state
-                            if cur and cur not in ("off", "unavailable", "unknown"):
-                                next_mode = cur
+                        async def _climate_toggle(eid=eid, state=state, turn_on=turn_on):
+                            if turn_on:
+                                cur = state.state
+                                if cur and cur not in ("off", "unavailable", "unknown"):
+                                    next_mode = cur
+                                else:
+                                    pref = ["heat_cool", "auto", "cool", "heat"]
+                                    hvac_modes = state.attributes.get("hvac_modes", [])
+                                    next_mode = None
+                                    for m in pref:
+                                        if m in hvac_modes:
+                                            next_mode = m
+                                            break
+                                    if not next_mode:
+                                        next_mode = "heat"
+                                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": next_mode}, blocking=False)
                             else:
-                                pref = ["heat_cool", "auto", "cool", "heat"]
-                                hvac_modes = state.attributes.get("hvac_modes", [])
-                                next_mode = None
-                                for m in pref:
-                                    if m in hvac_modes:
-                                        next_mode = m
-                                        break
-                                if not next_mode:
-                                    next_mode = "heat"
-                            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": next_mode}, blocking=False)
-                        else:
-                            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": "off"}, blocking=False)
-                        results.append({"ids": [sid], "status": "SUCCESS"})
+                                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": "off"}, blocking=False)
+                        service_calls.append((sid, _climate_toggle()))
+                        sid_tracking.append(sid)
                     elif ctype == "action.devices.commands.BrightnessAbsolute" and domain == "light" and "brightness" in params:
                         pct = params["brightness"]
                         bri = max(0, min(255, round(pct * 255 / 100)))
-                        await self.hass.services.async_call("light", "turn_on", {"entity_id": eid, "brightness": bri}, blocking=False)
-                        results.append({"ids": [sid], "status": "SUCCESS"})
+                        async def _do_bri(eid=eid, bri=bri):
+                            await self.hass.services.async_call("light", "turn_on", {"entity_id": eid, "brightness": bri}, blocking=True)
+                        service_calls.append((sid, _do_bri()))
+                        sid_tracking.append(sid)
                     elif ctype == "action.devices.commands.ThermostatSetMode" and domain == "climate":
                         mode = params.get("thermostatMode")
-                        # Map Google -> HA
-                        inv_map = {
-                            "off": "off",
-                            "heat": "heat",
-                            "cool": "cool",
-                            "heatcool": "heat_cool",
-                            "fan-only": "fan_only",
-                            "dry": "dry",
-                        }
+                        inv_map = {"off": "off", "heat": "heat", "cool": "cool", "heatcool": "heat_cool", "fan-only": "fan_only", "dry": "dry"}
                         ha_mode = inv_map.get(mode)
                         if ha_mode:
-                            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": ha_mode}, blocking=False)
-                            results.append({"ids": [sid], "status": "SUCCESS"})
+                            async def _do_mode(eid=eid, ha_mode=ha_mode):
+                                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": eid, "hvac_mode": ha_mode}, blocking=True)
+                            service_calls.append((sid, _do_mode()))
+                            sid_tracking.append(sid)
                     elif ctype == "action.devices.commands.ThermostatTemperatureSetpoint" and domain == "climate":
                         temp = params.get("thermostatTemperatureSetpoint")
                         if temp is not None:
-                            await self.hass.services.async_call("climate", "set_temperature", {"entity_id": eid, "temperature": temp}, blocking=False)
-                            results.append({"ids": [sid], "status": "SUCCESS"})
+                            async def _do_temp(eid=eid, temp=temp):
+                                await self.hass.services.async_call("climate", "set_temperature", {"entity_id": eid, "temperature": temp}, blocking=True)
+                            service_calls.append((sid, _do_temp()))
+                            sid_tracking.append(sid)
                     elif ctype == "action.devices.commands.ThermostatTemperatureSetRange" and domain == "climate":
                         low = params.get("thermostatTemperatureSetpointLow")
                         high = params.get("thermostatTemperatureSetpointHigh")
@@ -536,65 +545,116 @@ class DeviceManager:
                             data["target_temp_low"] = low
                         if high is not None:
                             data["target_temp_high"] = high
-                        await self.hass.services.async_call("climate", "set_temperature", data, blocking=False)
-                        results.append({"ids": [sid], "status": "SUCCESS"})
+                        async def _do_range(eid=eid, data=data):
+                            await self.hass.services.async_call("climate", "set_temperature", data, blocking=True)
+                        service_calls.append((sid, _do_range()))
+                        sid_tracking.append(sid)
                     elif ctype == "action.devices.commands.SetFanSpeed" and domain == "climate":
                         fan_speed = params.get("fanSpeed")
                         if isinstance(fan_speed, str):
-                            # strip optional prefix speed_
                             fm = fan_speed[6:] if fan_speed.lower().startswith("speed_") else fan_speed
-                            await self.hass.services.async_call("climate", "set_fan_mode", {"entity_id": eid, "fan_mode": fm}, blocking=False)
-                            results.append({"ids": [sid], "status": "SUCCESS"})
+                            async def _do_fan(eid=eid, fm=fm):
+                                await self.hass.services.async_call("climate", "set_fan_mode", {"entity_id": eid, "fan_mode": fm}, blocking=True)
+                            service_calls.append((sid, _do_fan()))
+                            sid_tracking.append(sid)
                     elif ctype == "action.devices.commands.ColorAbsolute" and domain == "light":
                         color = params.get("color") or {}
-                        data = {"entity_id": eid}
                         spec = color.get("spectrumRGB") or color.get("spectrumRgb")
                         temp_k = color.get("temperatureK") or color.get("temperaturek")
-                        try:
-                            if spec is not None:
-                                # spec is integer (0xRRGGBB) or decimal
-                                if isinstance(spec, str):
-                                    if spec.startswith("0x"):
-                                        spec = int(spec, 16)
+                        async def _apply_color(eid=eid, spec=spec, temp_k=temp_k):
+                            data = {"entity_id": eid}
+                            try:
+                                if spec is not None:
+                                    if isinstance(spec, str):
+                                        if spec.startswith("0x"):
+                                            spec_int = int(spec, 16)
+                                        else:
+                                            spec_int = int(spec)
                                     else:
-                                        spec = int(spec)
-                                if isinstance(spec, int):
-                                    r = (spec >> 16) & 0xFF
-                                    g = (spec >> 8) & 0xFF
-                                    b = spec & 0xFF
-                                    data["rgb_color"] = [r, g, b]
-                            elif temp_k is not None:
-                                if isinstance(temp_k, (int, float)) and temp_k > 0:
-                                    mired = int(round(1000000 / float(temp_k)))
+                                        spec_int = spec
+                                    if isinstance(spec_int, int):
+                                        r = (spec_int >> 16) & 0xFF
+                                        g = (spec_int >> 8) & 0xFF
+                                        b = spec_int & 0xFF
+                                        data["rgb_color"] = [r, g, b]
+                                elif temp_k is not None and isinstance(temp_k, (int,float)) and temp_k>0:
+                                    mired = int(round(1000000/float(temp_k)))
                                     data["color_temp"] = mired
-                        except Exception:  # noqa: BLE001
-                            pass
-                        await self.hass.services.async_call("light", "turn_on", data, blocking=False)
-                        results.append({"ids": [sid], "status": "SUCCESS"})
+                            except Exception:
+                                pass
+                            await self.hass.services.async_call("light", "turn_on", data, blocking=False)
+                        service_calls.append((sid, _apply_color()))
+                        sid_tracking.append(sid)
                     elif ctype == "action.devices.commands.ActivateScene" and domain in ("scene", "script"):
-                        # Google sends deactivate for reversible scenes; we ignore as non reversible
                         deactivate = params.get("deactivate")
-                        if not deactivate:
-                            if domain == "script":
-                                # Prefer turn_on; fallback to run for compatibility
-                                try:
-                                    if self.hass.services.has_service("script", "turn_on"):
-                                        await self.hass.services.async_call("script", "turn_on", {"entity_id": eid}, blocking=False)
-                                    elif self.hass.services.has_service("script", "run"):
-                                        await self.hass.services.async_call("script", "run", {"entity_id": eid}, blocking=False)
-                                    else:
-                                        # no service; still report success to avoid hard error, could log
-                                        pass
-                                except Exception:  # noqa: BLE001
-                                    # attempt fallback run even if turn_on path failed
+                        async def _activate_scene(eid=eid, domain=domain, deactivate=deactivate):
+                            if not deactivate:
+                                if domain == "script":
                                     try:
-                                        await self.hass.services.async_call("script", "run", {"entity_id": eid}, blocking=False)
+                                        if self.hass.services.has_service("script", "turn_on"):
+                                            await self.hass.services.async_call("script", "turn_on", {"entity_id": eid}, blocking=False)
+                                        elif self.hass.services.has_service("script", "run"):
+                                            await self.hass.services.async_call("script", "run", {"entity_id": eid}, blocking=False)
                                     except Exception:
-                                        pass
-                            else:
-                                await self.hass.services.async_call("scene", "turn_on", {"entity_id": eid}, blocking=False)
-                        results.append({"ids": [sid], "status": "SUCCESS"})
+                                        try:
+                                            await self.hass.services.async_call("script", "run", {"entity_id": eid}, blocking=False)
+                                        except Exception:
+                                            pass
+                                else:
+                                    await self.hass.services.async_call("scene", "turn_on", {"entity_id": eid}, blocking=False)
+                        service_calls.append((sid, _activate_scene()))
+                        sid_tracking.append(sid)
+        # Execute all service calls concurrently
+        if service_calls:
+            import time
+            tasks = []
+            for sid, coro in service_calls:
+                async def _timed(sid=sid, coro=coro):
+                    t0 = time.perf_counter()
+                    try:
+                        await coro
+                    except Exception:  # noqa: BLE001
+                        pass
+                    dt = int((time.perf_counter()-t0)*1000)
+                    lst = self._exec_device_timings.setdefault(sid, [])
+                    lst.append(dt)
+                    if len(lst) > 20:
+                        lst.pop(0)
+                    self._exec_device_last[sid] = dt
+                tasks.append(_timed())
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception:  # noqa: BLE001
+                pass
+        # Build success results per sid (deduplicate)
+        seen = set()
+        for sid in sid_tracking:
+            if sid not in seen:
+                results.append({"ids": [sid], "status": "SUCCESS"})
+                seen.add(sid)
         return results
+
+    def exec_device_stats(self):
+        """Return per-device execute timing stats (last, p50, p95, max)."""
+        import math
+        out = {}
+        for sid, arr in self._exec_device_timings.items():
+            if not arr:
+                continue
+            s = sorted(arr)
+            def pct(p):
+                idx = int(math.ceil(p/100.0 * len(s))) - 1
+                if idx < 0: idx = 0
+                if idx >= len(s): idx = len(s)-1
+                return s[idx]
+            out[sid] = {
+                "count": len(s),
+                "last": self._exec_device_last.get(sid),
+                "p50": pct(50),
+                "p95": pct(95),
+                "max": s[-1],
+            }
+        return out
 
     def get_selection_map(self) -> Dict[str, bool]:
         return {eid: self._selections.get(eid, False) for eid in self.list_entities()}

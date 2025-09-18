@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.6.7] - 2025-09-18
+### Performance / Optimization
+- QUERY endpoint bouwt nu alleen status voor expliciet gevraagde device IDs (fallback naar alle geselecteerde wanneer Google geen lijst meestuurt) → lagere CPU & latency bij grote installaties.
+- EXECUTE service calls parallel uitgevoerd (asyncio gather) i.p.v. sequentieel; totale tijd ≈ langzaamste individuele call in plaats van som.
+
+### Diagnostics & Observability
+- Metrics tab in Admin UI: live p50/p95/max voor SYNC / QUERY / EXECUTE + event loop lag + per-device EXECUTE timing (last/p50/p95/max, rolling ~20 samples per device).
+- Per-device EXECUTE timing instrumentatie (blocking service calls) om trage entiteiten te isoleren.
+- Status endpoint (`/habridge/status`) uitgebreid met `execDeviceStats` (zelfde statistieken als UI tabel) en bestaande `latency` object.
+- Nieuwe documentatie: `docs/DIAGNOSTICS.md` met interpretatie (loop lag thresholds, p95 analyse, troubleshooting stappen).
+- QUERY logging uitgebreid: `parseMs`, `buildMs`, totale `timeMs`, aantal requested (`req`), aantal geselecteerd (`sel`).
+
+### Notes
+- Tag `v2.6.7` als annotated tag om HACS update notificatie te triggeren (`git tag -a v2.6.7 -m "2.6.7" && git push origin v2.6.7`).
+- Gebruikers die eerder via `main` hebben geïnstalleerd: adviseer omschakeling naar vaste versie voor toekomstige notificaties.
+
+### Future (mogelijk in 2.6.8+)
+- SYNC cache hit ratio in status & UI.
+- Per-device historical trend (mini sparkline) voor EXECUTE tijden.
+- Exporter / Prometheus style endpoint indien behoefte ontstaat.
+
+# [2.6.6] - 2025-09-17
+
 # [2.6.6] - 2025-09-17
 ### Fixed
 - Alias persist bug: lege alias dictionary werd door `or {}` telkens vervangen waardoor nieuwe aliases niet in Devices view verschenen tot herstart.
