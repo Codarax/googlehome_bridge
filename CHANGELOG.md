@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.6.8] - 2025-09-18
+### Hotfix / Stability
+- Herstelt `DeviceManager` init NameError (per-device EXECUTE timing dicts stonden buiten `__init__`).
+- Geen functionele wijzigingen verder; uitsluitend import/startup fix.
+
+### Notes
+- Indien 2.6.7 al geïnstalleerd en werkte zonder foutmelding is update optioneel.
+- Krijg je bij toevoegen integratie de fout "Invalid handler specified" / NameError → update direct naar 2.6.8.
+
+### Metrics
+- Identiek aan 2.6.7: Metrics tab, per-device EXECUTE timing & `execDeviceStats` endpoint.
+
 ## [2.6.7] - 2025-09-18
 ### Performance / Optimization
 - QUERY endpoint bouwt nu alleen status voor expliciet gevraagde device IDs (fallback naar alle geselecteerde wanneer Google geen lijst meestuurt) → lagere CPU & latency bij grote installaties.

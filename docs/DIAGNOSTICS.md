@@ -2,6 +2,8 @@
 
 This document legt uit hoe je de nieuwe metrics interpreteert en gebruikt voor performance troubleshooting.
 
+Versies: metrics geïntroduceerd in 2.6.7; 2.6.8 is een pure hotfix (init bug) zonder wijziging aan metrics.
+
 ## Overzicht Endpoints & UI
 - Admin UI tab "Metrics": toont latency percentielen (p50, p95, max) voor SYNC, QUERY en EXECUTE + event loop lag en per-device EXECUTE timing.
 - Endpoint `/habridge/status?token=...`: JSON payload met dezelfde velden voor automatisering of externe monitoring.
